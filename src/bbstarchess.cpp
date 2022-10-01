@@ -378,7 +378,7 @@ char SIDE = 0; //side to move
 int TURN = 1; //The current turn tracker
 
 const int DEPTH = 6;
-const int QDEPTH = 12;
+const int QDEPTH = 10;
 
 /**********************************\
  ==================================
@@ -1624,8 +1624,9 @@ inline int Evaluation(char id, char side, bool in_check) {
     int block;
 
     if (in_check) score += (side == white) ? -70 : 70; //Add points for check
-    if (TURN < 100) score += (side == white) ? 10 : -10; //Add points for tempo
-    else score += (side == white) ? 5 : -5;
+    score += (side == white) ? 10 : -10; //Add points for tempo
+    //if (TURN < 100) score += (side == white) ? 10 : -10; //Add points for tempo
+   // else score += (side == white) ? 5 : -5;
 
     //Add white scores
     bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
@@ -1680,7 +1681,13 @@ static inline int score_move(char id, int ply_depth, char side, char type, char 
 
 static inline int score_quiescence(char side, char type, char capture) {
     if (capture < 6) {
-        return mvv_lva[type][capture] + 10000;
+        if (type < capture)
+            return mvv_lva[type][capture] + 10000;
+        else if (type == capture)
+            return mvv_lva[type][capture] + 9000;
+        else
+            return mvv_lva[type][capture] + 8000;
+        //return mvv_lva[type][capture] + 10000;
     }
     return 0;
 }
@@ -2106,6 +2113,7 @@ long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends.
 chrono::time_point<chrono::steady_clock> START_TIME;
 bool stop_game = false;
 bool thread_stopped = false;
+
 void StartTimer() {
     START_TIME = chrono::steady_clock::now();
 }
@@ -2137,6 +2145,11 @@ void ResetTimeNodeValues() {
     NODES_SEARCHED = 0;
     stop_game = false;
 }
+
+inline int FutilityMoveCount(bool improving, int depth) {
+    return improving ? (17 + depth * depth)
+                     : (17 + depth * depth) / 2;
+  }
 
 static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
@@ -2206,7 +2219,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
     return alpha;
 }
 
-static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, int alpha, int beta) {
+static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, int prev_eval, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
     if(thread_stopped || TimedOut(id)) return DRAW_VALUE; //Times out search
     if (ply_depth <= 0) return Quiescence(id, QDEPTH, side, prev_key, alpha, beta);
@@ -2219,9 +2232,12 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     int score;
     int sphere_source = (side == white) ? BitScanForward(globals[id].Bitboards[S]) : BitScanForward(globals[id].Bitboards[s]);
     bool in_check = is_block_attacked(id, sphere_source, !side);
+    int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
+
     bool futility_pruning = false;
+    bool improving = (static_eval - prev_eval) > 0;
+
     if (!in_check) {
-        int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
 
         //Razoring
         if (ply_depth <= 3 &&
@@ -2233,14 +2249,14 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
 
         //Futility Pruning
         if (ply_depth <= 3 &&
-            static_eval - (165 * ply_depth) >= beta &&
+            static_eval - (165 * (ply_depth - improving)) >= beta &&
             static_eval < 48000) {
             return static_eval;
         }
 
         if (null_move) { //Null Move Pruning
             if (ply_depth >= 3)
-                score = -Search(id, ply_depth - 3, !side, prev_key, false, -beta, -beta + 1);
+                score = -Search(id, ply_depth - 3, !side, prev_key, false, static_eval, -beta, -beta + 1);
             else
                 score = -Quiescence(id, QDEPTH, !side, prev_key, -beta, -beta + 1);
             
@@ -2261,6 +2277,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     Move move;
     TTEntry *tt_entry;
     int legal_moves = 0;
+    int futility_move_count = FutilityMoveCount(improving, ply_depth);
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count && alpha < beta; i++) {
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
 
@@ -2278,7 +2295,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                     continue;
 
                 //Move Count Pruning
-                if (ply_depth <= 5 && move.capture >= 6 && legal_moves >= (17 + (ply_depth * ply_depth)))
+                if (move.capture >= 6 && legal_moves >= futility_move_count)
                     continue;
             }
 
@@ -2290,7 +2307,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             }
 
             if (legal_moves == 0) {//Do normal search on the first one
-                score = -Search(id, ply_depth-1, !side, move.key, true, -beta, -alpha);
+                score = -Search(id, ply_depth-1, !side, move.key, true, static_eval, -beta, -alpha);
             }
             else { //Late Move Reduction (LMR)
                 if (!in_check && 
@@ -2298,15 +2315,15 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                     ply_depth >= ReductionLimit &&
                     move.capture >= 6 &&
                     move.promotion == 0) 
-                    score = -Search(id, ply_depth - 2, !side, move.key, true, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
+                    score = -Search(id, ply_depth - 2, !side, move.key, true, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
                 else 
                     score = alpha + 1;
 
                 // if found a better move during LMR then do PVS
                 if (score > alpha) { // re-search at full depth but with narrowed bandwitdh
-                    score = -Search(id, ply_depth-1, !side, move.key, true, -alpha - 1, -alpha);
+                    score = -Search(id, ply_depth-1, !side, move.key, true, static_eval, -alpha - 1, -alpha);
                     if ((score > alpha) && (score < beta))
-                        score = -Search(id, ply_depth-1, !side, move.key, true, -beta, -alpha);
+                        score = -Search(id, ply_depth-1, !side, move.key, true, static_eval, -beta, -alpha);
                 }
             }
 
@@ -2360,7 +2377,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
 
     int sphere_source = (side == white) ? BitScanForward(globals[id].Bitboards[S]) : BitScanForward(globals[id].Bitboards[s]);
     bool in_check = is_block_attacked(id, sphere_source, !side);
-
+    int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
     //Generates and orders moves in different ways: ordered, two random orders, and key ordered
     if ((id % 4) == 0)
         GenerateMoves(id, ply_depth, side, start_key);
@@ -2388,7 +2405,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         }
 
         if (!IsRepeated(move.key))
-            score = -Search(id, ply_depth-1, !side, move.key, true, -beta, -alpha);
+            score = -Search(id, ply_depth-1, !side, move.key, true, static_eval, -beta, -alpha);
         else
             score = -MATE_VALUE;
 
