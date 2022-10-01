@@ -25,10 +25,10 @@ char ascii_pieces[] = "TDOCIStdocis";
 enum { T, D, O, C, I, S, t, d, o, c, i, s };
 enum { white, black, both }; //Piece colors
 enum {NO_ORDER, KEY_ORDER, RANDOM_ORDER}; //Move generation ordering
+enum {NO_MOVE, FOUND_MOVE};
 
 const char CHECKMATE = 100;
 const char STALEMATE = 101;
-const char NO_MOVE = 102;
 
 // convert ASCII character pieces to encoded constants
 int char_pieces[] = {
@@ -1025,6 +1025,15 @@ struct Move {
     int source;
     int target;
     int score;
+
+    void Clear() {
+        key = 0;
+        type = 0;
+        promotion = 0;
+        source = 0;
+        target = 0;
+        score = 0;
+    }
 };
 
 struct OrderedMoves {
@@ -1045,6 +1054,20 @@ struct OrderedMoves {
     }
 };
 
+struct SearchResult {
+    Move move;
+    char thread_id;
+    int score;
+    char flag;
+
+    void Clear() {
+        move.Clear();
+        thread_id = 0;
+        score = 0;
+        flag = 0;
+    }
+};
+
  struct Global {
     Int343 Bitboards[12];
     Int343 Occupancies[3];
@@ -1052,7 +1075,7 @@ struct OrderedMoves {
     Move killer_moves[2][DEPTH];
     OrderedMoves ordered_moves[DEPTH];
     OrderedMoves quiescence_moves[QDEPTH];
-    Move best_move;
+    SearchResult search_result;
 };
 
 const size_t MAX_SEARCH_THREADS = 4;
@@ -1455,9 +1478,9 @@ const int position_scores[6][343] =
 
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
-     0,   0,   0,   0,   0,   0,   0,
-     0,   0,   0,   0,   0,   0,   0,
-     0,   0,   0,   0,   0,   0,   0,
+     0,   0,   0,  50,   0,   0,   0,
+     0,   0,  50,   0,  50,   0,   0,
+     0,   0,   0,  50,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0
 }, { // Sphere position scores
@@ -1613,7 +1636,7 @@ inline int Evaluation(char id, char side, bool in_check) {
     bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block]; }
     bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; /*moves = GetOctaMoves(id, block); moves ^= (moves & globals[id].Occupancies[white]); score += Count(moves);*/}
     bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; /*moves = GetCubeMoves(id, block); moves ^= (moves & globals[id].Occupancies[white]); score += Count(moves);*/}
-    bitboard = globals[id].Bitboards[I]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; /*score -= (TURN < 100 && block <= 244) ? 10 : 0; no icosa pos scores */ }
+    bitboard = globals[id].Bitboards[I]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; score += position_scores[I][block]; /*score -= (TURN < 100 && block <= 244) ? 10 : 0; no icosa pos scores */ }
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
 
     //Subtract black scores (material_score contains negative values)
@@ -1625,7 +1648,7 @@ inline int Evaluation(char id, char side, bool in_check) {
     bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; /*moves = GetOctaMoves(id, block); moves ^= (moves & globals[id].Occupancies[black]); score -= Count(moves);*/}
     bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; /*moves = GetCubeMoves(id, block); moves ^= (moves & globals[id].Occupancies[black]); score -= Count(moves);*/}
-    bitboard = globals[id].Bitboards[i]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; /*score += (TURN < 100 && block >= 98) ? 10 : 0; no icosa pos scores */}
+    bitboard = globals[id].Bitboards[i]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; score -= position_scores[I][mirror_score[block]]; /*score += (TURN < 100 && block >= 98) ? 10 : 0; no icosa pos scores */}
     bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; }
 
     return score;
@@ -1670,7 +1693,6 @@ static inline int score_quiescence(char side, char type, char capture) {
  ==================================
 \**********************************/
 
-///----------
 OrderedMoves ordered_moves[DEPTH];
 OrderedMoves quiescence_moves[QDEPTH];
 U64 repeat_list[5] = {0, 0, 0, 0, 0};
@@ -1973,11 +1995,12 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
     }
 }
 
-static inline void GenerateCaptures(char id, int depth, char side) {
+static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key) {
     int src_block, dst_block;
     char capture, promotion;
     Int343 piece_set; Int343 moves;
     int score;
+    U64 key;
 
     //Tetras
     piece_set = globals[id].Bitboards[(side * 6) + T];
@@ -1987,8 +2010,9 @@ static inline void GenerateCaptures(char id, int depth, char side) {
             capture = GetCapture(id, side, T, dst_block);
             if (capture < 6) {
                 promotion = (side == white && (dst_block < 49)) || (side == black && (dst_block >= 294));
+                key = GetTTKey(prev_key, side, (side * 6) + T, capture, src_block, dst_block);
                 score = score_quiescence(side, T, capture);
-                globals[id].quiescence_moves[depth - 1].Add({0, T, capture, promotion, src_block, dst_block, score});
+                globals[id].quiescence_moves[depth - 1].Add({key, T, capture, promotion, src_block, dst_block, score});
             }
         }
     }
@@ -2000,8 +2024,9 @@ static inline void GenerateCaptures(char id, int depth, char side) {
         while ((dst_block = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, D, dst_block);
             if (capture < 6) {
+                key = GetTTKey(prev_key, side, (side * 6) + D, capture, src_block, dst_block);
                 score = score_quiescence(side, D, capture);
-                globals[id].quiescence_moves[depth - 1].Add({0, D, capture, 0, src_block, dst_block, score});
+                globals[id].quiescence_moves[depth - 1].Add({key, D, capture, 0, src_block, dst_block, score});
             }
         }
     }
@@ -2013,8 +2038,9 @@ static inline void GenerateCaptures(char id, int depth, char side) {
         while ((dst_block = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, O, dst_block);
             if (capture < 6) {
+                key = GetTTKey(prev_key, side, (side * 6) + O, capture, src_block, dst_block);
                 score = score_quiescence(side, O, capture);
-                globals[id].quiescence_moves[depth - 1].Add({0, O, capture, 0, src_block, dst_block, score});
+                globals[id].quiescence_moves[depth - 1].Add({key, O, capture, 0, src_block, dst_block, score});
             }
         }
     }
@@ -2026,8 +2052,9 @@ static inline void GenerateCaptures(char id, int depth, char side) {
         while ((dst_block = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, C, dst_block);
             if (capture < 6) {
+                key = GetTTKey(prev_key, side, (side * 6) + C, capture, src_block, dst_block);
                 score = score_quiescence(side, C, capture);
-                globals[id].quiescence_moves[depth - 1].Add({0, C, capture, 0, src_block, dst_block, score});
+                globals[id].quiescence_moves[depth - 1].Add({key, C, capture, 0, src_block, dst_block, score});
             }
         }
     }
@@ -2040,8 +2067,9 @@ static inline void GenerateCaptures(char id, int depth, char side) {
         while ((dst_block = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, I, dst_block);
             if (capture < 6) {
+                key = GetTTKey(prev_key, side, (side * 6) + I, capture, src_block, dst_block);
                 score = score_quiescence(side, I, capture);
-                globals[id].quiescence_moves[depth - 1].Add({0, I, capture, 0, src_block, dst_block, score});
+                globals[id].quiescence_moves[depth - 1].Add({key, I, capture, 0, src_block, dst_block, score});
             }
         }
     }
@@ -2052,8 +2080,9 @@ static inline void GenerateCaptures(char id, int depth, char side) {
     while ((dst_block = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, S, dst_block);
         if (capture < 6) {
+            key = GetTTKey(prev_key, side, (side * 6) + S, capture, src_block, dst_block);
             score = score_quiescence(side, S, capture);
-            globals[id].quiescence_moves[depth - 1].Add({0, S, capture, 0, src_block, dst_block, score});
+            globals[id].quiescence_moves[depth - 1].Add({key, S, capture, 0, src_block, dst_block, score});
         }
     }
 }
@@ -2109,41 +2138,57 @@ void ResetTimeNodeValues() {
     stop_game = false;
 }
 
-static inline int Quiescence(char id, int ply_depth, char side, int alpha, int beta) {
+static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
     int sphere_source = (side == white) ? BitScanForward(globals[id].Bitboards[S]) : BitScanForward(globals[id].Bitboards[s]);
     int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side)) * ((!side) ? 1 : -1);
 
     if (ply_depth <= 0) return score;
     if (score >= beta) return beta;
-    //if (score < alpha - 975) return alpha; //Delta pruning
     if (score > alpha) alpha = score;
 
-    GenerateCaptures(id, ply_depth, side);
+    GenerateCaptures(id, ply_depth, side, prev_key);
 
     Move move;
+    TTEntry *tt_entry;
     int legal_moves = 0;
     for (int i = 0; i < globals[id].quiescence_moves[ply_depth-1].count; i++) {
         move = globals[id].quiescence_moves[ply_depth-1].moves[i];
 
         if (move.type == 6) continue; //double check that no quiet moves are checked
 
-        //Move Count and Futility Pruning
-        if (move.promotion == 0) {
-            if (legal_moves > 4) continue;
-            if (score + material_score[move.capture] <= alpha) continue;
+        tt_entry = GetTTEntry(move.key);
+        if (tt_entry->turn == TURN && 
+            tt_entry->depth >= ply_depth && 
+            tt_entry->key == move.key) { //If the move chain already exists, then get that score
+            score = tt_entry->score;
         }
+        else {
+            //Move Count and Futility Pruning
+            if (move.promotion == 0) {
+                if (legal_moves > 4) continue;
+                if (score + material_score[move.capture] <= alpha) continue;
+            }
 
-        MakeKnownMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
+            MakeKnownMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
 
-        if (IsInCheck(id, side, move.type, move.target, sphere_source)) {
+            if (IsInCheck(id, side, move.type, move.target, sphere_source)) {
+                ReverseMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
+                continue;
+            }
+
+            score = -Quiescence(id, ply_depth-1, !side, move.key, -beta, -alpha);
+
             ReverseMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
-            continue;
+
+            //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
+            if (tt_entry->turn != TURN || (tt_entry->key == move.key && ply_depth > tt_entry->depth)) {
+                tt_entry->key = move.key;
+                tt_entry->turn = TURN; //Set as occupied
+                tt_entry->score = score; //Set TTEntry score
+                tt_entry->depth = ply_depth; //Update TTEntry depth
+            }
         }
-
-        score = -Quiescence(id, ply_depth-1, !side, -beta, -alpha);
-
-        ReverseMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
 
         legal_moves++;
 
@@ -2164,7 +2209,7 @@ static inline int Quiescence(char id, int ply_depth, char side, int alpha, int b
 static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
     if(thread_stopped || TimedOut(id)) return DRAW_VALUE; //Times out search
-    if (ply_depth <= 0) return Quiescence(id, QDEPTH, side, alpha, beta);
+    if (ply_depth <= 0) return Quiescence(id, QDEPTH, side, prev_key, alpha, beta);
 
     // Mate Distance Pruning;
     if (alpha < -MATE_VALUE + (DEPTH - ply_depth)) alpha = -MATE_VALUE + (DEPTH - ply_depth);
@@ -2181,7 +2226,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         //Razoring
         if (ply_depth <= 3 &&
             static_eval < alpha - 623 * ply_depth * ply_depth) { //Use 600 instead
-            score = Quiescence(id, QDEPTH, side, alpha - 1, alpha);
+            score = Quiescence(id, QDEPTH, side, prev_key, alpha - 1, alpha);
             if (score < alpha)
                 return score;
         }
@@ -2197,7 +2242,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             if (ply_depth >= 3)
                 score = -Search(id, ply_depth - 3, !side, prev_key, false, -beta, -beta + 1);
             else
-                score = -Quiescence(id, QDEPTH, !side, -beta, -beta + 1);
+                score = -Quiescence(id, QDEPTH, !side, prev_key, -beta, -beta + 1);
             
             if (score >= beta)
                 return beta;
@@ -2252,9 +2297,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                     legal_moves >= FullDepthMoves && 
                     ply_depth >= ReductionLimit &&
                     move.capture >= 6 &&
-                    move.promotion == 0 && 
-                    (globals[id].killer_moves[0][ply_depth-1].source != move.source || globals[id].killer_moves[0][ply_depth-1].target != move.target || globals[id].killer_moves[0][ply_depth-1].type != move.type) && 
-                    (globals[id].killer_moves[1][ply_depth-1].source != move.source || globals[id].killer_moves[1][ply_depth-1].target != move.target || globals[id].killer_moves[1][ply_depth-1].type != move.type)) 
+                    move.promotion == 0) 
                     score = -Search(id, ply_depth - 2, !side, move.key, true, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
                 else 
                     score = alpha + 1;
@@ -2307,12 +2350,10 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     return alpha;
 }
 
-Move top_move;
 static inline void SearchRootHelper(char id, int ply_depth, char side) {
     int alpha = -INFINITY;
     int beta = INFINITY;
     int score;
-    //Move best_move;
     Move move;
     int legal_moves = 0;
     U64 start_key = BuildTranspositionKey();
@@ -2330,6 +2371,10 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     else
         GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);
     //GenerateMoves(id, ply_depth, side, start_key);
+    /*if ((id % 2) == 0)
+        GenerateMoves(id, ply_depth, side, start_key);
+    else
+        GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);*/
 
     //printf("thread %d count: %d\n", id, globals[id].ordered_moves[ply_depth-1].count);
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
@@ -2355,8 +2400,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
 
         if (score > alpha) {
             alpha = score;
-            globals[id].best_move = move;
-            //globals[id].best_move.score = score;
+            globals[id].search_result.move = move;
             //printf(" >> NEW BEST MOVE");
         }
 
@@ -2368,23 +2412,25 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     // we don't have any legal moves to make in the current postion
     if (legal_moves == 0)  {
         if (in_check) //Checkmate
-            globals[id].best_move.type = CHECKMATE;
+            globals[id].search_result.move.type = CHECKMATE;
         else // Stalemate
-            globals[id].best_move.type = STALEMATE;
+            globals[id].search_result.move.type = STALEMATE;
     }
 
     globals[id].ordered_moves[ply_depth-1].Clear();
 
     if (!thread_stopped) {
-        top_move = globals[id].best_move;
+        globals[id].search_result.flag = FOUND_MOVE;
+        globals[id].search_result.score = score;
         thread_stopped = true;
         AVERAGE_SEARCH_TIME += GetTimePassed();
     }
 }
 
-static inline Move SearchRoot(int ply_depth, char side) {
-    //Move best_move;
+static inline SearchResult SearchRoot(int ply_depth, char side) {
     StartTimer();
+
+    SearchResult best_result;
     vector<thread> threads;
     threads.reserve(MAX_SEARCH_THREADS);
 
@@ -2396,7 +2442,8 @@ static inline Move SearchRoot(int ply_depth, char side) {
         for (int depth = 0; depth < QDEPTH; depth++) globals[id].quiescence_moves[depth].Clear();
         globals[id].NODES_SEARCHED = 0;
         memset(globals[id].killer_moves, 0, sizeof(globals[id].killer_moves));
-        globals[id].best_move = {0, 0, 0, 0, 0, 0, 0};
+        globals[id].search_result.Clear();
+        globals[id].search_result.thread_id = id;
     }
 
     //Generate Threads
@@ -2413,12 +2460,13 @@ static inline Move SearchRoot(int ply_depth, char side) {
     for (int id = 0; id < MAX_SEARCH_THREADS; id++) {
         printf("thread %d nodes searched: %ld\n", id, globals[id].NODES_SEARCHED);
         NODES_SEARCHED += globals[id].NODES_SEARCHED;
-       // if (globals[id].best_move.score >= best_move.score) //TODO: Not sure if >= is the best choice for an inequality
-            //best_move = globals[id].best_move;
+        if (globals[id].search_result.flag == FOUND_MOVE) {
+            best_result = globals[id].search_result;
+        }
     }
 
-    thread_stopped = false;
-    return top_move;
+    
+    return best_result;
 }
 
 // init all variables
@@ -2438,6 +2486,7 @@ void SwitchTurnValues(Move move) {
     UpdateRepeatList(move.key);
     SIDE = !SIDE;
     ResetTimeNodeValues();
+    thread_stopped = false;
     TURN++;
 }
 
@@ -2459,7 +2508,8 @@ void TestBitBoards() {
         cout << ">> " << block;
         getline(cin, response);
         //bits = 
-        print_bitboard(bits);
+        //print_bitboard(bits);
+        printf("white: %d, black: %d", position_scores[T][block], position_scores[T][mirror_score[block]]);
         block++;
     }
 }
@@ -2501,6 +2551,9 @@ void SelfPlay() {
     long milliseconds, seconds, minutes;
     char is_continuous = 0;
 
+    SearchResult search_result;
+    Move move;
+
     PrintTitle();
     
     while (true) {
@@ -2515,7 +2568,8 @@ void SelfPlay() {
 
         printf(">> Generating Moves for %s...\n", (SIDE) ? "BLACK" : "WHITE" );
 
-        Move move = SearchRoot(DEPTH, SIDE);
+        search_result = SearchRoot(DEPTH, SIDE);
+        move = search_result.move;
 
         //Get length of search, for testing purposes
         timestamp = GetTimePassed();
@@ -2541,9 +2595,10 @@ void SelfPlay() {
         }
 
         //Print out testing/logging info
-        printf("[Turn=%d|Depth=%d|%s|Type=%c|Source=%d|Target=%d|MoveScore=%d|NodesSearched=%ld|Time=%ld:%ld:%ld%s]\n", 
+        printf("[Turn=%d|Depth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%ld:%ld:%ld%s]\n", 
                 TURN, DEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[move.type], move.source, move.target, 
-                move.score, NODES_SEARCHED, minutes, seconds, milliseconds, (stop_game) ? " >> TIMEOUT" : "");
+                (move.capture < 6) ? ascii_pieces[move.capture] : 'X', search_result.score, search_result.thread_id, 
+                NODES_SEARCHED, minutes, seconds, milliseconds, (stop_game) ? " >> TIMEOUT" : "");
 
         //Switch sides and readjust key variables
         SwitchTurnValues(move);
@@ -2595,6 +2650,7 @@ int main() {
     //TestBitBoards();
     SelfPlay();
     //UIPlay();
+
 
     // if debugging
     if (debug)
