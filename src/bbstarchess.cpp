@@ -378,7 +378,7 @@ char SIDE = 0; //side to move
 int TURN = 1; //The current turn tracker
 
 const int DEPTH = 6;
-const int QDEPTH = 10;
+const int QDEPTH = 6;
 
 /**********************************\
  ==================================
@@ -599,8 +599,8 @@ enum {TT_ALPHA, TT_EXACT, TT_BETA};
 
 struct TTEntry {
     U64 key;
-    int turn;
-    int depth;
+    uint16_t turn;
+    uint8_t depth;
     int score;
 };
 
@@ -1017,32 +1017,27 @@ void init_rays_directions_edges() {
  ==================================
 \**********************************/
 
+const size_t MAX_MOVE_COUNT_SIZE = 400;
+
 struct Move {
     U64 key;
-    char type;
-    char capture;
-    char promotion;
-    int source;
-    int target;
+    int encoding;
     int score;
 
     void Clear() {
-        key = 0;
-        type = 0;
-        promotion = 0;
-        source = 0;
-        target = 0;
-        score = 0;
+        encoding = 0;
     }
 };
 
 struct OrderedMoves {
     int count = 0;
-    Move moves[500];
+    Move moves[MAX_MOVE_COUNT_SIZE];
 
     void Add(Move move) {
+        if (count >= MAX_MOVE_COUNT_SIZE) return;
+
         int i;
-        for (i = count-1; (i >= 0 && moves[i].score <= move.score); i--)
+        for (i = count-1; (i >= 0 && moves[i].score < move.score); i--)
             moves[i+1] = moves[i];
 
         moves[i+1] = move;
@@ -1082,28 +1077,32 @@ const size_t MAX_SEARCH_THREADS = 4;
 Global globals[MAX_SEARCH_THREADS];
 
 // encode move
-//NOTE: Encoding is not being used
-#define encode_move(source, target, piece, capture) \
+#define encode_move(source, target, piece, capture, promotion) \
     (source) |          \
     (target << 9) |     \
     (piece << 18) |     \
-    (capture << 21)     \
+    (capture << 21) |   \
+    (promotion << 24)   \
     
 // extract source square
 //00000000000000000000000111111111
 #define get_move_source(move) (move & 0x1FF)
 
 // extract target square
-    //00000000000000111111111000000000
+//00000000000000111111111000000000
 #define get_move_target(move) ((move & 0x3FE00) >> 9)
 
 // extract piece
-    //00000000000111000000000000000000
+//00000000000111000000000000000000
 #define get_move_piece(move) ((move & 0x1C0000) >> 18)
 
 // extract capture flag
-    //00000000111000000000000000000000
+//00000000111000000000000000000000
 #define get_move_capture(move) ((move & 0xE00000) >> 21)
+
+// extract promotion flag
+//00000111000000000000000000000000
+#define get_move_promotion(move) ((move & 0x7000000) >> 24) 
 
 //TODO: These definitions are currently not in use, and will likely never be. Perhaps they should be removed.
 /*#define GetValidTetraMoves(side, block) (tetra_attacks[side][block] & Occupancies[!side]) | (tetra_moves[side][block] ^ (tetra_moves[side][block] & Occupancies[both]))
@@ -1195,7 +1194,21 @@ inline int GetCapture(char id, char side, int attack_type, int dst_block) {
  
  ==================================
 \**********************************/
-const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
+//const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
+const int material_score[12] = {
+    100,      // white pawn score
+    300,      // white knight scrore
+    350,      // white bishop score
+    400,      // white rook score
+   1000,      // white queen score
+  10000,      // white king score
+   -100,      // black pawn score
+   -300,      // black knight scrore
+   -350,      // black bishop score
+   -400,      // black rook score
+  -1000,      // black queen score
+ -10000,      // black king score
+};
 const int MATE_SCORE = 48000;
 const int MATE_VALUE = 49000;
 const int DRAW_VALUE = 0;
@@ -1625,31 +1638,25 @@ inline int Evaluation(char id, char side, bool in_check) {
 
     if (in_check) score += (side == white) ? -70 : 70; //Add points for check
     score += (side == white) ? 10 : -10; //Add points for tempo
-    //if (TURN < 100) score += (side == white) ? 10 : -10; //Add points for tempo
-   // else score += (side == white) ? 5 : -5;
 
     //Add white scores
-    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
-        score += material_score[T]; 
-        score += position_scores[T][block]; 
-        //score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0;
+    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[T]; score += position_scores[T][block]; 
+                score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0;
     }
     bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block]; }
-    bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; /*moves = GetOctaMoves(id, block); moves ^= (moves & globals[id].Occupancies[white]); score += Count(moves);*/}
-    bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; /*moves = GetCubeMoves(id, block); moves ^= (moves & globals[id].Occupancies[white]); score += Count(moves);*/}
-    bitboard = globals[id].Bitboards[I]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; score += position_scores[I][block]; /*score -= (TURN < 100 && block <= 244) ? 10 : 0; no icosa pos scores */ }
+    bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; }
+    bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; }
+    bitboard = globals[id].Bitboards[I]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; score += position_scores[I][block]; }
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
 
     //Subtract black scores (material_score contains negative values)
-    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
-        score += material_score[t]; 
-        score -= position_scores[T][mirror_score[block]]; 
-        //score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
+    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[t]; score -= position_scores[T][mirror_score[block]]; 
+                score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
     }
     bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; }
-    bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; /*moves = GetOctaMoves(id, block); moves ^= (moves & globals[id].Occupancies[black]); score -= Count(moves);*/}
-    bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; /*moves = GetCubeMoves(id, block); moves ^= (moves & globals[id].Occupancies[black]); score -= Count(moves);*/}
-    bitboard = globals[id].Bitboards[i]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; score -= position_scores[I][mirror_score[block]]; /*score += (TURN < 100 && block >= 98) ? 10 : 0; no icosa pos scores */}
+    bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; }
+    bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; }
+    bitboard = globals[id].Bitboards[i]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; score -= position_scores[I][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; }
 
     return score;
@@ -1657,7 +1664,7 @@ inline int Evaluation(char id, char side, bool in_check) {
 
 static inline int score_move(char id, int ply_depth, char side, char type, char capture, char promotion, int source, int target, U64 key) {
     TTEntry *tt_entry = GetTTEntry(key);
-    if (tt_entry->turn == TURN && tt_entry->key == key) { //Transposition Table pieces go first
+    if (tt_entry->key == key && tt_entry->turn == TURN) { //Transposition Table pieces go first
         return 10000;
     }
     else if (capture < 6) { 
@@ -1666,10 +1673,10 @@ static inline int score_move(char id, int ply_depth, char side, char type, char 
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
         return 9000; //Made up number for promotion relative to the mvv_lva lookup table;
     }
-    else if (globals[id].killer_moves[0][ply_depth-1].type == type && globals[id].killer_moves[0][ply_depth-1].source == source && globals[id].killer_moves[0][ply_depth-1].target == target) {
+    else if (globals[id].killer_moves[0][ply_depth-1].encoding == (encode_move(source, target, type, capture, promotion))) {
         return 8000;
     }
-    else if (globals[id].killer_moves[1][ply_depth-1].type == type && globals[id].killer_moves[1][ply_depth-1].source == source && globals[id].killer_moves[1][ply_depth-1].target == target) {
+    else if (globals[id].killer_moves[1][ply_depth-1].encoding == (encode_move(source, target, type, capture, promotion))) {
         return 7000;
     }
     else {
@@ -1687,7 +1694,6 @@ static inline int score_quiescence(char side, char type, char capture) {
             return mvv_lva[type][capture] + 9000;
         else
             return mvv_lva[type][capture] + 8000;
-        //return mvv_lva[type][capture] + 10000;
     }
     return 0;
 }
@@ -1824,84 +1830,86 @@ inline bool is_block_attacked(char id, int block, char side) {
 #define IsInCheck(id, side, type, target, sphere_source)  ((type != S) ? is_block_attacked(id, sphere_source, !side) : is_block_attacked(id, target, !side))
 
 static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
-    int src_block, dst_block;
+    int source, target;
     char capture, promotion;
     Int343 piece_set; Int343 moves;
     int score;
     U64 key;
 
+    //encode_move(source, target, piece, capture, promotion)
+    
     //Tetras
     piece_set = globals[id].Bitboards[(side * 6) + T];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetValidTetraMoves(id, side, src_block);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, T, dst_block);
-            promotion = (side == white && (dst_block < 49)) || (side == black && (dst_block >= 294));
-            key = GetTTKey(prev_key, side, (side * 6) + T, capture, src_block, dst_block);
-            score = score_move(id, depth, side, T, capture, promotion, src_block, dst_block, key);
-            globals[id].ordered_moves[depth - 1].Add({key, T, capture, promotion, src_block, dst_block, score});
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetValidTetraMoves(id, side, source);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, T, target);
+            promotion = (side == white && (target < 49)) || (side == black && (target >= 294));
+            key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
+            score = score_move(id, depth, side, T, capture, promotion, source, target, key);
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, T, capture, promotion), score});
         }
     }
 
     //Dodecas
     piece_set = globals[id].Bitboards[(side * 6) + D];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetValidDodecaMoves(id, side, src_block);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, D, dst_block);
-            key = GetTTKey(prev_key, side, (side * 6) + D, capture, src_block, dst_block);
-            score = score_move(id, depth, side, D, capture, 0, src_block, dst_block, key);
-            globals[id].ordered_moves[depth - 1].Add({key, D, capture, 0, src_block, dst_block, score});
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetValidDodecaMoves(id, side, source);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, D, target);
+            key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
+            score = score_move(id, depth, side, D, capture, 0, source, target, key);
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), score});
         }
     }
 
     //Octas
     piece_set = globals[id].Bitboards[(side * 6) + O];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetOctaMoves(id, src_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetOctaMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, O, dst_block);
-            key = GetTTKey(prev_key, side, (side * 6) + O, capture, src_block, dst_block);
-            score = score_move(id, depth, side, O, capture, 0, src_block, dst_block, key);
-            globals[id].ordered_moves[depth - 1].Add({key, O, capture, 0, src_block, dst_block, score});
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, O, target);
+            key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
+            score = score_move(id, depth, side, O, capture, 0, source, target, key);
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), score});
         }
     }
 
     //Cubes
     piece_set = globals[id].Bitboards[(side * 6) + C];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetCubeMoves(id, src_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetCubeMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, C, dst_block);
-            key = GetTTKey(prev_key, side, (side * 6) + C, capture, src_block, dst_block);
-            score = score_move(id, depth, side, C, capture, 0, src_block, dst_block, key);
-            globals[id].ordered_moves[depth - 1].Add({key, C, capture, 0, src_block, dst_block, score});
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, C, target);
+            key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
+            score = score_move(id, depth, side, C, capture, 0, source, target, key);
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), score});
         }
     }
 
     //Icosas
     piece_set = globals[id].Bitboards[(side * 6) + I];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetOctaMoves(id, src_block) | GetCubeMoves(id, src_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetOctaMoves(id, source) | GetCubeMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, I, dst_block);
-            key = GetTTKey(prev_key, side, (side * 6) + I, capture, src_block, dst_block);
-            score = score_move(id, depth, side, I, capture, 0, src_block, dst_block, key);
-            globals[id].ordered_moves[depth - 1].Add({key, I, capture, 0, src_block, dst_block, score});
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, I, target);
+            key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
+            score = score_move(id, depth, side, I, capture, 0, source, target, key);
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), score});
         }
     }
 
     //Sphere
-    src_block = BitScanForward(globals[id].Bitboards[(side * 6) + S]);
-    moves = GetValidSphereMoves(id, side, src_block);
-    while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-        capture = GetCapture(id, side, S, dst_block);
-        key = GetTTKey(prev_key, side, (side * 6) + S, capture, src_block, dst_block);
-        score = score_move(id, depth, side, S, capture, 0, src_block, dst_block, key);
-        globals[id].ordered_moves[depth - 1].Add({key, S, capture, 0, src_block, dst_block, score});
+    source = BitScanForward(globals[id].Bitboards[(side * 6) + S]);
+    moves = GetValidSphereMoves(id, side, source);
+    while ((target = ForwardScanPop(&moves)) >= 0) {
+        capture = GetCapture(id, side, S, target);
+        key = GetTTKey(prev_key, side, (side * 6) + S, capture, source, target);
+        score = score_move(id, depth, side, S, capture, 0, source, target, key);
+        globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, S, capture, 0), score});
     }
 }
 
@@ -1921,7 +1929,7 @@ static inline int GetOrderValue(char type, U64 key) {
 }
 
 static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_key, char order_type) {
-    int src_block, dst_block;
+    int source, target;
     char capture, promotion;
     Int343 piece_set; Int343 moves;
     U64 key;
@@ -1929,81 +1937,81 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
 
     //Tetras
     piece_set = globals[id].Bitboards[(side * 6) + T];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetValidTetraMoves(id, side, src_block);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, T, dst_block);
-            promotion = (side == white && (dst_block < 49)) || (side == black && (dst_block >= 294));
-            key = GetTTKey(prev_key, side, (side * 6) + T, capture, src_block, dst_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetValidTetraMoves(id, side, source);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, T, target);
+            promotion = (side == white && (target < 49)) || (side == black && (target >= 294));
+            key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
             order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, T, capture, promotion, src_block, dst_block, order_value});
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, T, capture, promotion), order_value});
         }
     }
 
     //Dodecas
     piece_set = globals[id].Bitboards[(side * 6) + D];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetValidDodecaMoves(id, side, src_block);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, D, dst_block);
-            key = GetTTKey(prev_key, side, (side * 6) + D, capture, src_block, dst_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetValidDodecaMoves(id, side, source);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, D, target);
+            key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
             order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, D, capture, 0, src_block, dst_block, order_value});
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), order_value});
         }
     }
 
     //Octas
     piece_set = globals[id].Bitboards[(side * 6) + O];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetOctaMoves(id, src_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetOctaMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, O, dst_block);
-            key = GetTTKey(prev_key, side, (side * 6) + O, capture, src_block, dst_block);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, O, target);
+            key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
             order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, O, capture, 0, src_block, dst_block, order_value});
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), order_value});
         }
     }
 
     //Cubes
     piece_set = globals[id].Bitboards[(side * 6) + C];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetCubeMoves(id, src_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetCubeMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, C, dst_block);
-            key = GetTTKey(prev_key, side, (side * 6) + C, capture, src_block, dst_block);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, C, target);
+            key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
             order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, C, capture, 0, src_block, dst_block, order_value});
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), order_value});
         }
     }
 
     //Icosas
     piece_set = globals[id].Bitboards[(side * 6) + I];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetOctaMoves(id, src_block) | GetCubeMoves(id, src_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetOctaMoves(id, source) | GetCubeMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, I, dst_block);
-            key = GetTTKey(prev_key, side, (side * 6) + I, capture, src_block, dst_block);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, I, target);
+            key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
             order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, I, capture, 0, src_block, dst_block, order_value});
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), order_value});
         }
     }
 
     //Sphere
-    src_block = BitScanForward(globals[id].Bitboards[(side * 6) + S]);
-    moves = GetValidSphereMoves(id, side, src_block);
-    while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-        capture = GetCapture(id, side, S, dst_block);
-        key = GetTTKey(prev_key, side, (side * 6) + S, capture, src_block, dst_block);
+    source = BitScanForward(globals[id].Bitboards[(side * 6) + S]);
+    moves = GetValidSphereMoves(id, side, source);
+    while ((target = ForwardScanPop(&moves)) >= 0) {
+        capture = GetCapture(id, side, S, target);
+        key = GetTTKey(prev_key, side, (side * 6) + S, capture, source, target);
         order_value = GetOrderValue(order_type, key);
-        globals[id].ordered_moves[depth - 1].Add({key, S, capture, 0, src_block, dst_block, order_value});
+        globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, S, capture, 0), order_value});
     }
 }
 
 static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key) {
-    int src_block, dst_block;
+    int source, target;
     char capture, promotion;
     Int343 piece_set; Int343 moves;
     int score;
@@ -2011,85 +2019,85 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
 
     //Tetras
     piece_set = globals[id].Bitboards[(side * 6) + T];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetValidTetraMoves(id, side, src_block) & globals[id].Occupancies[!side];
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, T, dst_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetValidTetraMoves(id, side, source) & globals[id].Occupancies[!side];
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, T, target);
             if (capture < 6) {
-                promotion = (side == white && (dst_block < 49)) || (side == black && (dst_block >= 294));
-                key = GetTTKey(prev_key, side, (side * 6) + T, capture, src_block, dst_block);
+                promotion = (side == white && (target < 49)) || (side == black && (target >= 294));
+                key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
                 score = score_quiescence(side, T, capture);
-                globals[id].quiescence_moves[depth - 1].Add({key, T, capture, promotion, src_block, dst_block, score});
+                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, T, capture, promotion), score});
             }
         }
     }
 
     //Dodecas
     piece_set = globals[id].Bitboards[(side * 6) + D];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetValidDodecaMoves(id, side, src_block) & globals[id].Occupancies[!side];
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, D, dst_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetValidDodecaMoves(id, side, source) & globals[id].Occupancies[!side];
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, D, target);
             if (capture < 6) {
-                key = GetTTKey(prev_key, side, (side * 6) + D, capture, src_block, dst_block);
+                key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
                 score = score_quiescence(side, D, capture);
-                globals[id].quiescence_moves[depth - 1].Add({key, D, capture, 0, src_block, dst_block, score});
+                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), score});
             }
         }
     }
 
     //Octas
     piece_set = globals[id].Bitboards[(side * 6) + O];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetOctaMoves(id, src_block) & globals[id].Occupancies[!side];
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, O, dst_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetOctaMoves(id, source) & globals[id].Occupancies[!side];
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, O, target);
             if (capture < 6) {
-                key = GetTTKey(prev_key, side, (side * 6) + O, capture, src_block, dst_block);
+                key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
                 score = score_quiescence(side, O, capture);
-                globals[id].quiescence_moves[depth - 1].Add({key, O, capture, 0, src_block, dst_block, score});
+                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), score});
             }
         }
     }
 
     //Cubes
     piece_set = globals[id].Bitboards[(side * 6) + C];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetCubeMoves(id, src_block) & globals[id].Occupancies[!side];
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, C, dst_block);
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetCubeMoves(id, source) & globals[id].Occupancies[!side];
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, C, target);
             if (capture < 6) {
-                key = GetTTKey(prev_key, side, (side * 6) + C, capture, src_block, dst_block);
+                key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
                 score = score_quiescence(side, C, capture);
-                globals[id].quiescence_moves[depth - 1].Add({key, C, capture, 0, src_block, dst_block, score});
+                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), score});
             }
         }
     }
 
     //Icosas
     piece_set = globals[id].Bitboards[(side * 6) + I];
-    while((src_block = ForwardScanPop(&piece_set)) >= 0) {
-        moves = (GetOctaMoves(id, src_block) | GetCubeMoves(id, src_block)) & globals[id].Occupancies[!side];
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = (GetOctaMoves(id, source) | GetCubeMoves(id, source)) & globals[id].Occupancies[!side];
         //moves ^= (moves & Occupancies[side]);
-        while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, I, dst_block);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, I, target);
             if (capture < 6) {
-                key = GetTTKey(prev_key, side, (side * 6) + I, capture, src_block, dst_block);
+                key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
                 score = score_quiescence(side, I, capture);
-                globals[id].quiescence_moves[depth - 1].Add({key, I, capture, 0, src_block, dst_block, score});
+                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), score});
             }
         }
     }
 
     //Sphere
-    src_block = BitScanForward(globals[id].Bitboards[(side * 6) + S]);
-    moves = GetValidSphereMoves(id, side, src_block) & globals[id].Occupancies[!side];
-    while ((dst_block = ForwardScanPop(&moves)) >= 0) {
-        capture = GetCapture(id, side, S, dst_block);
+    source = BitScanForward(globals[id].Bitboards[(side * 6) + S]);
+    moves = GetValidSphereMoves(id, side, source) & globals[id].Occupancies[!side];
+    while ((target = ForwardScanPop(&moves)) >= 0) {
+        capture = GetCapture(id, side, S, target);
         if (capture < 6) {
-            key = GetTTKey(prev_key, side, (side * 6) + S, capture, src_block, dst_block);
+            key = GetTTKey(prev_key, side, (side * 6) + S, capture, source, target);
             score = score_quiescence(side, S, capture);
-            globals[id].quiescence_moves[depth - 1].Add({key, S, capture, 0, src_block, dst_block, score});
+            globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, S, capture, 0), score});
         }
     }
 }
@@ -2104,7 +2112,8 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
 
 const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
-const int futility_margin[4] = {0, 100, 320, 32767};
+//const int futility_margin[4] = {0, 100, 320, 32767};
+const int futility_margin[5] = {0, 100, 320, 400, 1000};
 const long long TIME_LIMIT = 30000000;
 
 long NODES_SEARCHED = 0;
@@ -2113,6 +2122,7 @@ long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends.
 chrono::time_point<chrono::steady_clock> START_TIME;
 bool stop_game = false;
 bool thread_stopped = false;
+mutex mtx; //Used for locking thread when finishing search
 
 void StartTimer() {
     START_TIME = chrono::steady_clock::now();
@@ -2163,43 +2173,47 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
     GenerateCaptures(id, ply_depth, side, prev_key);
 
     Move move;
+    char type, capture, promotion; int source, target;
     TTEntry *tt_entry;
     int legal_moves = 0;
     for (int i = 0; i < globals[id].quiescence_moves[ply_depth-1].count; i++) {
         move = globals[id].quiescence_moves[ply_depth-1].moves[i];
-
-        if (move.type == 6) continue; //double check that no quiet moves are checked
+        source = get_move_source(move.encoding);
+        target = get_move_target(move.encoding);
+        type = get_move_piece(move.encoding);
+        capture = get_move_capture(move.encoding);
+        promotion = get_move_promotion(move.encoding);
 
         tt_entry = GetTTEntry(move.key);
-        if (tt_entry->turn == TURN && 
-            tt_entry->depth >= ply_depth && 
-            tt_entry->key == move.key) { //If the move chain already exists, then get that score
+        if (tt_entry->key == move.key && 
+            tt_entry->turn == TURN && 
+            tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
             score = tt_entry->score;
         }
         else {
             //Move Count and Futility Pruning
-            if (move.promotion == 0) {
-                if (legal_moves > 4) continue;
-                if (score + material_score[move.capture] <= alpha) continue;
+            if (promotion == 0) {
+                if (legal_moves > 6) continue;
+                if (score + material_score[capture] <= alpha) continue;
             }
 
-            MakeKnownMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
+            MakeKnownMove(id, side, type, capture, promotion, source, target);
 
-            if (IsInCheck(id, side, move.type, move.target, sphere_source)) {
-                ReverseMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
+            if (IsInCheck(id, side, type, target, sphere_source)) {
+                ReverseMove(id, side, type, capture, promotion, source, target);
                 continue;
             }
 
             score = -Quiescence(id, ply_depth-1, !side, move.key, -beta, -alpha);
 
-            ReverseMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
+            ReverseMove(id, side, type, capture, promotion, source, target);
 
             //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
             if (tt_entry->turn != TURN || (tt_entry->key == move.key && ply_depth > tt_entry->depth)) {
                 tt_entry->key = move.key;
-                tt_entry->turn = TURN; //Set as occupied
+                tt_entry->turn = TURN;
+                tt_entry->depth = ply_depth;
                 tt_entry->score = score; //Set TTEntry score
-                tt_entry->depth = ply_depth; //Update TTEntry depth
             }
         }
 
@@ -2264,8 +2278,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 return beta;
         }
 
-        //int static_eval = Evaluation(side, in_check) * ((!side) ? 1 : -1);
-        if (ply_depth <= 3 &&  //Futility Pruning Setup
+        if (ply_depth <= 4 &&  //Futility Pruning Setup
             ((alpha >= 0) ? alpha : -alpha) < MATE_SCORE && 
             (static_eval + futility_margin[ply_depth]) <= alpha) {
             futility_pruning = true;
@@ -2275,34 +2288,39 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     GenerateMoves(id, ply_depth, side, prev_key);
 
     Move move;
+    char type, capture, promotion; int source, target;
     TTEntry *tt_entry;
     int legal_moves = 0;
     int futility_move_count = FutilityMoveCount(improving, ply_depth);
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count && alpha < beta; i++) {
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
+        source = get_move_source(move.encoding);
+        target = get_move_target(move.encoding);
+        type = get_move_piece(move.encoding);
+        capture = get_move_capture(move.encoding);
+        promotion = get_move_promotion(move.encoding);
 
         tt_entry = GetTTEntry(move.key);
-        if (tt_entry->turn == TURN && 
-            tt_entry->depth >= ply_depth && 
-            tt_entry->key == move.key) { //If the move chain already exists, then get that score
+        if (tt_entry->key == move.key && 
+            tt_entry->turn == TURN && 
+            tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
             score = tt_entry->score;
         }
         else {
             //Early Pruning
-            if (!in_check && move.type != T) {
+            if (!in_check && promotion == 0) {
+                //Move Count Pruning, only for non-tetra quiet moves, when legal moves is over futility count
+                if (type != T && capture >= 6 && legal_moves >= futility_move_count) continue;
                 //Futility Pruning
-                if (futility_pruning && legal_moves > 0)
-                    continue;
-
-                //Move Count Pruning
-                if (move.capture >= 6 && legal_moves >= futility_move_count)
-                    continue;
+                if (type != T && futility_pruning && legal_moves > 0) continue;
+                //More Futility Pruning for captures
+               // if (ply_depth <= 4 && capture < 6 && (static_eval + material_score[capture] + (200 * ply_depth)) <= alpha) continue;
             }
 
-            MakeKnownMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
+            MakeKnownMove(id, side, type, capture, promotion, source, target);
 
-            if (IsInCheck(id, side, move.type, move.target, sphere_source)) {
-                ReverseMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
+            if (IsInCheck(id, side, type, target, sphere_source)) {
+                ReverseMove(id, side, type, capture, promotion, source, target);
                 continue;
             }
 
@@ -2313,8 +2331,8 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 if (!in_check && 
                     legal_moves >= FullDepthMoves && 
                     ply_depth >= ReductionLimit &&
-                    move.capture >= 6 &&
-                    move.promotion == 0) 
+                    capture >= 6 &&
+                    promotion == 0) 
                     score = -Search(id, ply_depth - 2, !side, move.key, true, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
                 else 
                     score = alpha + 1;
@@ -2327,21 +2345,21 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 }
             }
 
-            ReverseMove(id, side, move.type, move.capture, move.promotion, move.source, move.target); //Undo move
+            ReverseMove(id, side, type, capture, promotion, source, target);
 
             //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
             if (tt_entry->turn != TURN || (tt_entry->key == move.key && ply_depth > tt_entry->depth)) {
                 tt_entry->key = move.key;
-                tt_entry->turn = TURN; //Set as occupied
+                tt_entry->turn = TURN;
+                tt_entry->depth = ply_depth;
                 tt_entry->score = score; //Set TTEntry score
-                tt_entry->depth = ply_depth; //Update TTEntry depth
             }
         }  
         
         legal_moves++;
 
         if (score >= beta) {
-            if (move.capture >= 6) {
+            if (capture >= 6) {
                 globals[id].killer_moves[1][ply_depth-1] = globals[id].killer_moves[0][ply_depth-1];
                 globals[id].killer_moves[0][ply_depth-1] = move;
             }
@@ -2372,6 +2390,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     int beta = INFINITY;
     int score;
     Move move;
+    char type, capture, promotion; int source, target;
     int legal_moves = 0;
     U64 start_key = BuildTranspositionKey();
 
@@ -2397,10 +2416,16 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
 
-        MakeKnownMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
+        source = get_move_source(move.encoding);
+        target = get_move_target(move.encoding);
+        type = get_move_piece(move.encoding);
+        capture = get_move_capture(move.encoding);
+        promotion = get_move_promotion(move.encoding);
 
-        if (IsInCheck(id, side, move.type, move.target, sphere_source)) {
-            ReverseMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
+        MakeKnownMove(id, side, type, capture, promotion, source, target);
+
+        if (IsInCheck(id, side, type, target, sphere_source)) {
+            ReverseMove(id, side, type, capture, promotion, source, target);
             continue;
         }
 
@@ -2409,7 +2434,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         else
             score = -MATE_VALUE;
 
-        ReverseMove(id, side, move.type, move.capture, move.promotion, move.source, move.target);
+        ReverseMove(id, side, type, capture, promotion, source, target);
 
         legal_moves++;     
 
@@ -2424,24 +2449,24 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         //load_bar();
     }
 
-    //printf("\n");
-
-    // we don't have any legal moves to make in the current postion
-    if (legal_moves == 0)  {
-        if (in_check) //Checkmate
-            globals[id].search_result.move.type = CHECKMATE;
-        else // Stalemate
-            globals[id].search_result.move.type = STALEMATE;
-    }
-
     globals[id].ordered_moves[ply_depth-1].Clear();
 
+    //printf("\n");
+
+    mtx.lock();
     if (!thread_stopped) {
-        globals[id].search_result.flag = FOUND_MOVE;
+        if (legal_moves == 0)  { // we don't have any legal moves to make in the current postion
+            globals[id].search_result.flag = (in_check) ? CHECKMATE : STALEMATE;
+        }
+        else {
+            globals[id].search_result.flag = FOUND_MOVE;
+        }
+
         globals[id].search_result.score = score;
         thread_stopped = true;
         AVERAGE_SEARCH_TIME += GetTimePassed();
     }
+    mtx.unlock();
 }
 
 static inline SearchResult SearchRoot(int ply_depth, char side) {
@@ -2477,11 +2502,10 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
     for (int id = 0; id < MAX_SEARCH_THREADS; id++) {
         printf("thread %d nodes searched: %ld\n", id, globals[id].NODES_SEARCHED);
         NODES_SEARCHED += globals[id].NODES_SEARCHED;
-        if (globals[id].search_result.flag == FOUND_MOVE) {
+        if (globals[id].search_result.flag != NO_MOVE) {
             best_result = globals[id].search_result;
         }
     }
-
     
     return best_result;
 }
@@ -2570,6 +2594,7 @@ void SelfPlay() {
 
     SearchResult search_result;
     Move move;
+    char type, capture, promotion; int source, target;
 
     PrintTitle();
     
@@ -2588,34 +2613,39 @@ void SelfPlay() {
         search_result = SearchRoot(DEPTH, SIDE);
         move = search_result.move;
 
+        source = get_move_source(move.encoding);
+        target = get_move_target(move.encoding);
+        type = get_move_piece(move.encoding);
+        capture = get_move_capture(move.encoding);
+        promotion = get_move_promotion(move.encoding);
+
         //Get length of search, for testing purposes
         timestamp = GetTimePassed();
         milliseconds   = (long) (timestamp / 1000) % 1000;
         seconds    = (((long) (timestamp / 1000) - milliseconds)/1000)%60 ;
         minutes    = (((((long) (timestamp / 1000) - milliseconds)/1000) - seconds)/60) %60;
 
-        if (move.type == CHECKMATE) {
+        if (search_result.flag == CHECKMATE) {
             printf("CHECKMATE!\n");
             if (SIDE == white) printf("BLACK WON!\n");
             else printf("WHITE WON!\n");
             PrintEndGameMetrics(false);
             break;
         }
-        else if (move.type == STALEMATE) {
+        else if (search_result.flag == STALEMATE) {
             printf("STALEMATE!\nGAME OVER!\n");
             PrintEndGameMetrics(false);
             break;
         }
         else {
-            printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[move.type], move.source, move.target);
-            MakeMove(SIDE, move.type, move.source, move.target); //Make the move just searched, if not a checkmate/stalemate
+            printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
+            MakeMove(SIDE, type, source, target); //Make the move just searched, if not a checkmate/stalemate
         }
 
         //Print out testing/logging info
         printf("[Turn=%d|Depth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%ld:%ld:%ld%s]\n", 
-                TURN, DEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[move.type], move.source, move.target, 
-                (move.capture < 6) ? ascii_pieces[move.capture] : 'X', search_result.score, search_result.thread_id, 
-                NODES_SEARCHED, minutes, seconds, milliseconds, (stop_game) ? " >> TIMEOUT" : "");
+                TURN, DEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (capture < 6) ? ascii_pieces[capture] : 'X', 
+                search_result.score, search_result.thread_id, NODES_SEARCHED, minutes, seconds, milliseconds, (stop_game) ? " >> TIMEOUT" : "");
 
         //Switch sides and readjust key variables
         SwitchTurnValues(move);
@@ -2645,7 +2675,7 @@ void SelfPlay() {
 * Y Razoring
 * Y Futility Pruning
 * N Evaluation Pruning 
-* - Lazy SMP / Multi-threading
+* Y Lazy SMP / Multi-threading
 * Y Mate Distance Pruning
 * Y Mate Count Pruning
 * Y Implement Quisesence + Delta Search
@@ -2667,7 +2697,6 @@ int main() {
     //TestBitBoards();
     SelfPlay();
     //UIPlay();
-
 
     // if debugging
     if (debug)
