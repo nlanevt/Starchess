@@ -1059,7 +1059,7 @@ struct SearchResult {
         move.Clear();
         thread_id = 0;
         score = 0;
-        flag = 0;
+        flag = NO_MOVE;
     }
 };
 
@@ -1194,8 +1194,8 @@ inline int GetCapture(char id, char side, int attack_type, int dst_block) {
  
  ==================================
 \**********************************/
-//const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
-const int material_score[12] = {
+const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
+/*const int material_score[12] = {
     100,      // white pawn score
     300,      // white knight scrore
     350,      // white bishop score
@@ -1208,7 +1208,7 @@ const int material_score[12] = {
    -400,      // black rook score
   -1000,      // black queen score
  -10000,      // black king score
-};
+};*/
 const int MATE_SCORE = 48000;
 const int MATE_VALUE = 49000;
 const int DRAW_VALUE = 0;
@@ -1632,31 +1632,39 @@ static int mvv_lva[12][12] = {
 };
 
 inline int Evaluation(char id, char side, bool in_check) {
-    int score = 0;
+    int score, block, count;
     Int343 bitboard; Int343 moves;
-    int block;
 
+    score = 0;
     if (in_check) score += (side == white) ? -70 : 70; //Add points for check
     score += (side == white) ? 10 : -10; //Add points for tempo
 
     //Add white scores
-    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[T]; score += position_scores[T][block]; 
-                score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0;
+    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
+        score += material_score[T]; score += position_scores[T][block]; 
+        score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0;
     }
     bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block]; }
     bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; }
     bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; }
-    bitboard = globals[id].Bitboards[I]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; score += position_scores[I][block]; }
+
+    bitboard = globals[id].Bitboards[I]; count = Count(bitboard); if (count < 4) score -= 100 * (4 - count);
+    while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; score += position_scores[I][block]; }
+
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
 
     //Subtract black scores (material_score contains negative values)
-    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[t]; score -= position_scores[T][mirror_score[block]]; 
-                score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
+    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
+        score += material_score[t]; score -= position_scores[T][mirror_score[block]]; 
+        score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
     }
     bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; }
-    bitboard = globals[id].Bitboards[i]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; score -= position_scores[I][mirror_score[block]]; }
+
+    bitboard = globals[id].Bitboards[i]; count = Count(bitboard); if (count < 4) score += 100 * (4 - count);
+    while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; score -= position_scores[I][mirror_score[block]]; }
+
     bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; }
 
     return score;
@@ -1835,8 +1843,6 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
     Int343 piece_set; Int343 moves;
     int score;
     U64 key;
-
-    //encode_move(source, target, piece, capture, promotion)
     
     //Tetras
     piece_set = globals[id].Bitboards[(side * 6) + T];
@@ -2112,13 +2118,14 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
 
 const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
-//const int futility_margin[4] = {0, 100, 320, 32767};
-const int futility_margin[5] = {0, 100, 320, 400, 1000};
-const long long TIME_LIMIT = 30000000;
+const int futility_margin[5] = {0, 100, 320, 500, 975};
+//const int futility_margin[5] = {0, 100, 320, 400, 1000};
+const long long TIME_LIMIT = 15000000; //15 seconds
 
 long NODES_SEARCHED = 0;
 int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends.
 long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends.
+long long MAX_SEARCH_TIME = 0;
 chrono::time_point<chrono::steady_clock> START_TIME;
 bool stop_game = false;
 bool thread_stopped = false;
@@ -2154,6 +2161,13 @@ inline bool TimedOut(char id) {
 void ResetTimeNodeValues() {
     NODES_SEARCHED = 0;
     stop_game = false;
+}
+
+string GetTimeStampString(long long timestamp) {
+    long milliseconds = (long) (timestamp / 1000) % 1000;
+    long seconds = (((long) (timestamp / 1000) - milliseconds)/1000) % 60;
+    long minutes = (((((long) (timestamp / 1000) - milliseconds)/1000) - seconds)/60) % 60;
+    return to_string(minutes) + ":" + to_string(seconds) + ":" + to_string(milliseconds);
 }
 
 inline int FutilityMoveCount(bool improving, int depth) {
@@ -2233,7 +2247,9 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
     return alpha;
 }
 
-static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, int prev_eval, int alpha, int beta) {
+//pp_eval = static eval from this sides last turn, so the turn before the last turn
+//p_eval = static eval from the last turn, so the opponents turn that led to this one.
+static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, int pp_eval, int p_eval, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
     if(thread_stopped || TimedOut(id)) return DRAW_VALUE; //Times out search
     if (ply_depth <= 0) return Quiescence(id, QDEPTH, side, prev_key, alpha, beta);
@@ -2248,8 +2264,8 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
 
-    bool futility_pruning = false;
-    bool improving = (static_eval - prev_eval) > 0;
+    //bool futility_pruning = false;
+    bool improving = (static_eval - pp_eval) > 0;
 
     if (!in_check) {
 
@@ -2270,7 +2286,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
 
         if (null_move) { //Null Move Pruning
             if (ply_depth >= 3)
-                score = -Search(id, ply_depth - 3, !side, prev_key, false, static_eval, -beta, -beta + 1);
+                score = -Search(id, ply_depth - 3, !side, prev_key, false, p_eval, static_eval, -beta, -beta + 1);
             else
                 score = -Quiescence(id, QDEPTH, !side, prev_key, -beta, -beta + 1);
             
@@ -2278,11 +2294,11 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 return beta;
         }
 
-        if (ply_depth <= 4 &&  //Futility Pruning Setup
+        /*if (ply_depth <= 4 &&  //Futility Pruning Setup
             ((alpha >= 0) ? alpha : -alpha) < MATE_SCORE && 
             (static_eval + futility_margin[ply_depth]) <= alpha) {
             futility_pruning = true;
-        }
+        }*/
     }
     
     GenerateMoves(id, ply_depth, side, prev_key);
@@ -2308,13 +2324,17 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         }
         else {
             //Early Pruning
-            if (!in_check && promotion == 0) {
+            if (!in_check && type != T && promotion == 0) {
                 //Move Count Pruning, only for non-tetra quiet moves, when legal moves is over futility count
-                if (type != T && capture >= 6 && legal_moves >= futility_move_count) continue;
+                if (capture >= 6 && legal_moves >= futility_move_count) continue;
                 //Futility Pruning
-                if (type != T && futility_pruning && legal_moves > 0) continue;
+                //if (futility_pruning && legal_moves > 0) continue;
                 //More Futility Pruning for captures
                // if (ply_depth <= 4 && capture < 6 && (static_eval + material_score[capture] + (200 * ply_depth)) <= alpha) continue;
+                if (ply_depth <= 4) {
+                    if (static_eval + futility_margin[ply_depth] <= alpha && legal_moves > 0) continue;
+                    if (capture < 6 && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
+                }
             }
 
             MakeKnownMove(id, side, type, capture, promotion, source, target);
@@ -2325,7 +2345,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             }
 
             if (legal_moves == 0) {//Do normal search on the first one
-                score = -Search(id, ply_depth-1, !side, move.key, true, static_eval, -beta, -alpha);
+                score = -Search(id, ply_depth-1, !side, move.key, true, p_eval, static_eval, -beta, -alpha);
             }
             else { //Late Move Reduction (LMR)
                 if (!in_check && 
@@ -2333,15 +2353,15 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                     ply_depth >= ReductionLimit &&
                     capture >= 6 &&
                     promotion == 0) 
-                    score = -Search(id, ply_depth - 2, !side, move.key, true, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
+                    score = -Search(id, ply_depth - 2, !side, move.key, true, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
                 else 
                     score = alpha + 1;
 
                 // if found a better move during LMR then do PVS
                 if (score > alpha) { // re-search at full depth but with narrowed bandwitdh
-                    score = -Search(id, ply_depth-1, !side, move.key, true, static_eval, -alpha - 1, -alpha);
+                    score = -Search(id, ply_depth-1, !side, move.key, true, p_eval, static_eval, -alpha - 1, -alpha);
                     if ((score > alpha) && (score < beta))
-                        score = -Search(id, ply_depth-1, !side, move.key, true, static_eval, -beta, -alpha);
+                        score = -Search(id, ply_depth-1, !side, move.key, true, p_eval, static_eval, -beta, -alpha);
                 }
             }
 
@@ -2374,12 +2394,9 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
 
     globals[id].ordered_moves[ply_depth-1].Clear();
 
-    // we don't have any legal moves to make in the current postion
+    // we don't have any legal moves to make in the current postion, then return checkmate or stalemate
     if (legal_moves == 0)  {
-        if (in_check) // king is in check
-            return -MATE_VALUE + (DEPTH - ply_depth); // return mating score (assuming closest distance to mating position)
-        else // Stalemate
-            return DRAW_VALUE; //Stalemate score
+        return (in_check) ? -MATE_VALUE + (DEPTH - ply_depth) : DRAW_VALUE;
     }
 
     return alpha;
@@ -2430,7 +2447,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         }
 
         if (!IsRepeated(move.key))
-            score = -Search(id, ply_depth-1, !side, move.key, true, static_eval, -beta, -alpha);
+            score = -Search(id, ply_depth-1, !side, move.key, true, 0, static_eval, -beta, -alpha);
         else
             score = -MATE_VALUE;
 
@@ -2455,13 +2472,11 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
 
     mtx.lock();
     if (!thread_stopped) {
-        if (legal_moves == 0)  { // we don't have any legal moves to make in the current postion
+        if (legal_moves == 0) // we don't have any legal moves to make in the current postion
             globals[id].search_result.flag = (in_check) ? CHECKMATE : STALEMATE;
-        }
-        else {
+        else
             globals[id].search_result.flag = FOUND_MOVE;
-        }
-
+        
         globals[id].search_result.score = score;
         thread_stopped = true;
         AVERAGE_SEARCH_TIME += GetTimePassed();
@@ -2557,12 +2572,10 @@ void TestBitBoards() {
 
 void PrintEndGameMetrics(bool SelfPlay) {
     AVERAGE_SEARCH_TIME = (SelfPlay) ? AVERAGE_SEARCH_TIME / TURN : AVERAGE_SEARCH_TIME / (TURN / 2);
-    long milliseconds = (long) (AVERAGE_SEARCH_TIME / 1000) % 1000;
-    long seconds = (((long) (AVERAGE_SEARCH_TIME / 1000) - milliseconds)/1000) % 60;
-    long minutes = (((((long) (AVERAGE_SEARCH_TIME / 1000) - milliseconds)/1000) - seconds)/60) % 60;
-
+    printf("TurnCount=%d\n", TURN);
     printf("TimeoutCount=%d\n", TIMEOUT_COUNT); //TODO: Ensure TIMEOUT_COUNT Gets reset to 0;
-    printf("AvergeSearchTime=%ld:%ld:%ld\n", minutes, seconds, milliseconds);
+    printf("AvergeSearchTime=%s\n", GetTimeStampString(AVERAGE_SEARCH_TIME).c_str());
+    printf("MaxSearchTime=%s\n", GetTimeStampString(MAX_SEARCH_TIME).c_str());
 }
 
 void PrintTitle() {
@@ -2572,6 +2585,7 @@ void PrintTitle() {
             "==================================\n" <<
             "**********************************\n";
     cout << "Threaded Version\n";
+    cout << "Timeout = " << GetTimeStampString(TIME_LIMIT) << "\n";
 }
 
 //Splits the string str and puts it in out
@@ -2588,8 +2602,7 @@ void tokenize(string const &str, const char delim, vector<string> &out)
 
 void SelfPlay() {
     string response;
-    long long timestamp;
-    long milliseconds, seconds, minutes;
+    long long search_time;
     char is_continuous = 0;
 
     SearchResult search_result;
@@ -2620,10 +2633,8 @@ void SelfPlay() {
         promotion = get_move_promotion(move.encoding);
 
         //Get length of search, for testing purposes
-        timestamp = GetTimePassed();
-        milliseconds   = (long) (timestamp / 1000) % 1000;
-        seconds    = (((long) (timestamp / 1000) - milliseconds)/1000)%60 ;
-        minutes    = (((((long) (timestamp / 1000) - milliseconds)/1000) - seconds)/60) %60;
+        search_time = GetTimePassed();
+        if (search_time > MAX_SEARCH_TIME) MAX_SEARCH_TIME = search_time;
 
         if (search_result.flag == CHECKMATE) {
             printf("CHECKMATE!\n");
@@ -2643,9 +2654,9 @@ void SelfPlay() {
         }
 
         //Print out testing/logging info
-        printf("[Turn=%d|Depth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%ld:%ld:%ld%s]\n", 
+        printf("[Turn=%d|Depth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n", 
                 TURN, DEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (capture < 6) ? ascii_pieces[capture] : 'X', 
-                search_result.score, search_result.thread_id, NODES_SEARCHED, minutes, seconds, milliseconds, (stop_game) ? " >> TIMEOUT" : "");
+                search_result.score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (stop_game) ? " >> TIMEOUT" : "");
 
         //Switch sides and readjust key variables
         SwitchTurnValues(move);
