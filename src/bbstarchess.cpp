@@ -1195,20 +1195,6 @@ inline int GetCapture(char id, char side, int attack_type, int dst_block) {
  ==================================
 \**********************************/
 const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
-/*const int material_score[12] = {
-    100,      // white pawn score
-    300,      // white knight scrore
-    350,      // white bishop score
-    400,      // white rook score
-   1000,      // white queen score
-  10000,      // white king score
-   -100,      // black pawn score
-   -300,      // black knight scrore
-   -350,      // black bishop score
-   -400,      // black rook score
-  -1000,      // black queen score
- -10000,      // black king score
-};*/
 const int MATE_SCORE = 48000;
 const int MATE_VALUE = 49000;
 const int DRAW_VALUE = 0;
@@ -1837,6 +1823,21 @@ inline bool is_block_attacked(char id, int block, char side) {
 
 #define IsInCheck(id, side, type, target, sphere_source)  ((type != S) ? is_block_attacked(id, sphere_source, !side) : is_block_attacked(id, target, !side))
 
+static inline int GetOrderValue(char type, U64 key) {
+    switch (type) {
+        case NO_ORDER:
+            return 0;
+        case KEY_ORDER:
+            return (int) key;
+        case RANDOM_ORDER:
+            return get_random_U32_number();
+        default:
+            return 0;
+    }
+
+    return 0;
+}
+
 static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
     int source, target;
     char capture, promotion;
@@ -1917,21 +1918,6 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
         score = score_move(id, depth, side, S, capture, 0, source, target, key);
         globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, S, capture, 0), score});
     }
-}
-
-static inline int GetOrderValue(char type, U64 key) {
-    switch (type) {
-        case NO_ORDER:
-            return 0;
-        case KEY_ORDER:
-            return (int) key;
-        case RANDOM_ORDER:
-            return get_random_U32_number();
-        default:
-            return 0;
-    }
-
-    return 0;
 }
 
 static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_key, char order_type) {
@@ -2076,7 +2062,6 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
     piece_set = globals[id].Bitboards[(side * 6) + I];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = (GetOctaMoves(id, source) | GetCubeMoves(id, source)) & globals[id].Occupancies[!side];
-        //moves ^= (moves & Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, I, target);
             key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
@@ -2107,7 +2092,6 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
 const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
 const int futility_margin[5] = {0, 100, 320, 500, 975};
-//const int futility_margin[5] = {0, 100, 320, 400, 1000};
 const long long TIME_LIMIT = 15000000; //15 seconds
 
 long NODES_SEARCHED = 0;
@@ -2180,12 +2164,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
     int legal_moves = 0;
     for (int i = 0; i < globals[id].quiescence_moves[ply_depth-1].count; i++) {
         move = globals[id].quiescence_moves[ply_depth-1].moves[i];
-        source = get_move_source(move.encoding);
-        target = get_move_target(move.encoding);
-        type = get_move_piece(move.encoding);
-        capture = get_move_capture(move.encoding);
-        promotion = get_move_promotion(move.encoding);
-
+        
         tt_entry = GetTTEntry(move.key);
         if (tt_entry->key == move.key && 
             tt_entry->turn == TURN && 
@@ -2193,11 +2172,18 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
             score = tt_entry->score;
         }
         else {
+            capture = get_move_capture(move.encoding);
+
             //Move Count and Futility Pruning
             if (promotion == 0) {
                 if (legal_moves > 6) continue;
                 if (score + material_score[capture] <= alpha) continue;
             }
+
+            source = get_move_source(move.encoding);
+            target = get_move_target(move.encoding);
+            type = get_move_piece(move.encoding);
+            promotion = get_move_promotion(move.encoding);
 
             MakeKnownMove(id, side, type, capture, promotion, source, target);
 
@@ -2237,7 +2223,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
 
 //pp_eval = static eval from this sides last turn, so the turn before the last turn
 //p_eval = static eval from the last turn, so the opponents turn that led to this one.
-static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, int pp_eval, int p_eval, int alpha, int beta) {
+static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, int p_move, int pp_eval, int p_eval, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
     if(thread_stopped || TimedOut(id)) return DRAW_VALUE; //Times out search
     if (ply_depth <= 0) return Quiescence(id, QDEPTH, side, prev_key, alpha, beta);
@@ -2251,12 +2237,9 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     int sphere_source = (side == white) ? BitScanForward(globals[id].Bitboards[S]) : BitScanForward(globals[id].Bitboards[s]);
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
-
-    //bool futility_pruning = false;
     bool improving = (static_eval - pp_eval) > 0;
 
     if (!in_check) {
-
         //Razoring
         if (ply_depth <= 3 &&
             static_eval < alpha - 623 * ply_depth * ply_depth) { //Use 600 instead
@@ -2272,9 +2255,10 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             return static_eval;
         }
 
-        if (null_move) { //Null Move Pruning
+        //Null Move Pruning
+        if (null_move) { 
             if (ply_depth >= 3)
-                score = -Search(id, ply_depth - 3, !side, prev_key, false, p_eval, static_eval, -beta, -beta + 1);
+                score = -Search(id, ply_depth - 3, !side, prev_key, false, p_move, p_eval, static_eval, -beta, -beta + 1);
             else
                 score = -Quiescence(id, QDEPTH, !side, prev_key, -beta, -beta + 1);
             
@@ -2282,13 +2266,15 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 return beta;
         }
 
-        /*if (ply_depth <= 4 &&  //Futility Pruning Setup
-            ((alpha >= 0) ? alpha : -alpha) < MATE_SCORE && 
-            (static_eval + futility_margin[ply_depth]) <= alpha) {
-            futility_pruning = true;
-        }*/
+        //Probability Cut
+        if (ply_depth > 3 && (get_move_capture(p_move) < 6 || get_move_promotion(p_move) != 0)) {
+            int bound = beta + 191 - 54 * improving;
+            score = Search(id, ply_depth - 3, side, prev_key, true, p_move, pp_eval, p_eval, -bound, -bound+1);
+            if (score >= bound)
+                return score;
+        }
     }
-    
+
     GenerateMoves(id, ply_depth, side, prev_key);
 
     Move move;
@@ -2296,13 +2282,8 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     TTEntry *tt_entry;
     int legal_moves = 0;
     int futility_move_count = FutilityMoveCount(improving, ply_depth);
-    for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count && alpha < beta; i++) {
+    for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
-        source = get_move_source(move.encoding);
-        target = get_move_target(move.encoding);
-        type = get_move_piece(move.encoding);
-        capture = get_move_capture(move.encoding);
-        promotion = get_move_promotion(move.encoding);
 
         tt_entry = GetTTEntry(move.key);
         if (tt_entry->key == move.key && 
@@ -2311,19 +2292,25 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             score = tt_entry->score;
         }
         else {
+            type = get_move_piece(move.encoding);
+            capture = get_move_capture(move.encoding);
+            promotion = get_move_promotion(move.encoding);
+
             //Early Pruning
-            if (!in_check && type != T && promotion == 0) {
+            if (!in_check && promotion == 0) {
                 //Move Count Pruning, only for non-tetra quiet moves, when legal moves is over futility count
-                if (capture >= 6 && legal_moves >= futility_move_count) continue;
+                if (capture >= 6 && legal_moves >= futility_move_count && type != T) continue;
+
                 //Futility Pruning
-                //if (futility_pruning && legal_moves > 0) continue;
-                //More Futility Pruning for captures
-               // if (ply_depth <= 4 && capture < 6 && (static_eval + material_score[capture] + (200 * ply_depth)) <= alpha) continue;
-                if (ply_depth <= 4) {
-                    if (static_eval + futility_margin[ply_depth] <= alpha && legal_moves > 0) continue;
+                if (ply_depth <= 4 && legal_moves > 0) {
+                    if (capture >= 6 && static_eval + futility_margin[ply_depth] <= alpha) continue; //Quiet Moves
                     if (capture < 6 && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
+                    //if (capture < 6 && (static_eval + 180 + 201 * ply_depth + material_score[capture]) <= alpha) continue; //Captures
                 }
             }
+
+            source = get_move_source(move.encoding);
+            target = get_move_target(move.encoding);
 
             MakeKnownMove(id, side, type, capture, promotion, source, target);
 
@@ -2332,8 +2319,10 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 continue;
             }
 
+            //Add move here: globals[id].ordered_moves[ply_depth-1].move = move;
+
             if (legal_moves == 0) {//Do normal search on the first one
-                score = -Search(id, ply_depth-1, !side, move.key, true, p_eval, static_eval, -beta, -alpha);
+                score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, p_eval, static_eval, -beta, -alpha);
             }
             else { //Late Move Reduction (LMR)
                 if (!in_check && 
@@ -2341,15 +2330,15 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                     ply_depth >= ReductionLimit &&
                     capture >= 6 &&
                     promotion == 0) 
-                    score = -Search(id, ply_depth - 2, !side, move.key, true, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
+                    score = -Search(id, ply_depth - 2, !side, move.key, true, move.encoding, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
                 else 
                     score = alpha + 1;
 
                 // if found a better move during LMR then do PVS
                 if (score > alpha) { // re-search at full depth but with narrowed bandwitdh
-                    score = -Search(id, ply_depth-1, !side, move.key, true, p_eval, static_eval, -alpha - 1, -alpha);
+                    score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, p_eval, static_eval, -alpha - 1, -alpha);
                     if ((score > alpha) && (score < beta))
-                        score = -Search(id, ply_depth-1, !side, move.key, true, p_eval, static_eval, -beta, -alpha);
+                        score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, p_eval, static_eval, -beta, -alpha);
                 }
             }
 
@@ -2402,6 +2391,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     int sphere_source = (side == white) ? BitScanForward(globals[id].Bitboards[S]) : BitScanForward(globals[id].Bitboards[s]);
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
+
     //Generates and orders moves in different ways: ordered, two random orders, and key ordered
     if ((id % 4) == 0)
         GenerateMoves(id, ply_depth, side, start_key);
@@ -2411,16 +2401,9 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         GenerateMovesOther(id, ply_depth, side, start_key, KEY_ORDER);
     else
         GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);
-    //GenerateMoves(id, ply_depth, side, start_key);
-    /*if ((id % 2) == 0)
-        GenerateMoves(id, ply_depth, side, start_key);
-    else
-        GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);*/
 
-    //printf("thread %d count: %d\n", id, globals[id].ordered_moves[ply_depth-1].count);
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
-
         source = get_move_source(move.encoding);
         target = get_move_target(move.encoding);
         type = get_move_piece(move.encoding);
@@ -2435,7 +2418,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         }
 
         if (!IsRepeated(move.key))
-            score = -Search(id, ply_depth-1, !side, move.key, true, 0, static_eval, -beta, -alpha);
+            score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, 0, static_eval, -beta, -alpha);
         else
             score = -MATE_VALUE;
 
@@ -2650,7 +2633,6 @@ void SelfPlay() {
         SwitchTurnValues(move);
     }
 }
-
 
 /*
 * TODO: 
