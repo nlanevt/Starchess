@@ -14,6 +14,7 @@ using namespace std;
 
 #define start_position "ccdddcccooooocdocicoddoisioddocicodcooooocccdddccttttttttttttttttttttttttttttttttttttttttttttttttt000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTCCDDDCCCOOOOOCDOCICODDOISIODDOCICODCOOOOOCCCDDDCC w"
 //#define start_position "ccdddcccooooocdodidoddoisioddodidodcooooocccdddccttttttttttttttttttttttttttttttttttttttttttttttttt000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTCCDDDCCCOOOOOCDODIDODDOISIODDODIDODCOOOOOCCCDDDCC w"
+//#define start_position "c000000000o00cdoc0cod0o0sio0doc0codc00o000000000cttt00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000TTTC0D0000000O00CDOC0COD0O0SIO0DOC0CODC00O0000000D0C w"
 
 // unicode pieces
 char *unicode_pieces[12] = {(char *)"♙", (char *)"♘", (char *)"♗", (char *)"♖", (char *)"♕", (char *)"♔", 
@@ -29,6 +30,7 @@ enum {NO_MOVE, FOUND_MOVE};
 
 const char CHECKMATE = 100;
 const char STALEMATE = 101;
+const char DRAW_GAME = 102;
 
 // convert ASCII character pieces to encoded constants
 int char_pieces[] = {
@@ -1700,20 +1702,24 @@ static inline int score_quiescence(char side, char type, char capture) {
  ==================================
 \**********************************/
 
+const size_t MOVES_LIST_SIZE = 500;
 OrderedMoves ordered_moves[DEPTH];
 OrderedMoves quiescence_moves[QDEPTH];
-U64 repeat_list[5] = {0, 0, 0, 0, 0};
+Move moves_list[MOVES_LIST_SIZE];
 
-static inline void UpdateRepeatList(U64 new_position) {
-    repeat_list[4] = repeat_list[3];
-    repeat_list[3] = repeat_list[2];
-    repeat_list[2] = repeat_list[1]; 
-    repeat_list[1] = repeat_list[0];
-    repeat_list[0] = new_position;
+static inline void AddToMoveList(Move new_move) {
+    if (TURN >= MOVES_LIST_SIZE) {
+        for (int i = 0; i < MOVES_LIST_SIZE - 1; i++) {
+            moves_list[i] = moves_list[i+1];
+        }
+    }
+    
+    moves_list[TURN-1] = new_move;
 }
 
 static inline bool IsRepeated(U64 position) {
-    if (position == repeat_list[2] || position == repeat_list[3] || position == repeat_list[4]) {
+    if (TURN > 4 && 
+        (position == moves_list[TURN-1].key || position == moves_list[TURN-2].key || position == moves_list[TURN-3].key)) {
         printf("<Repeat>");
         return true;
     }
@@ -2145,7 +2151,68 @@ string GetTimeStampString(long long timestamp) {
 inline int FutilityMoveCount(bool improving, int depth) {
     return improving ? (17 + depth * depth)
                      : (17 + depth * depth) / 2;
-  }
+}
+
+bool IsDrawnGame(Move move) {
+    //threefold repetition
+    int repetition_counter = 0;
+    for (int i = (TURN <= MOVES_LIST_SIZE) ? TURN-1 : MOVES_LIST_SIZE-1; i >= 0; i--) {
+        if (move.key == moves_list[i].key) repetition_counter++;
+        if (repetition_counter >= 3) {
+            printf("<ThreefoldRepeatDraw>");
+            return true;
+        }
+    }
+
+    //fifty move: if after fifty moves no pawn was moved and no captures occurred.
+    /*if (TURN > 50 && get_move_piece(move.encoding) != T && get_move_capture(move.encoding) >= 6) {
+        bool fifty_check = true;
+        printf("<2>");
+        int cap = 0;
+        for (int i = (TURN <= MOVES_LIST_SIZE) ? TURN-1 : MOVES_LIST_SIZE-1; cap < 50 && i >= 0; i--, cap++) {
+            if (get_move_piece(moves_list[i].encoding) == T || get_move_capture(moves_list[i].encoding) < 6) {
+                fifty_check = false;
+                printf("<1>");
+                break;
+            }
+        }
+
+        if (fifty_check) {
+            printf("<FiftyCheckDraw>");
+            return true;
+        }
+    }*/
+
+    
+
+    //Check for insufficient material conditions
+    //If both sides only have one king
+    //if one side has only one minor piece (dodeca, octa) and opponent is bare
+    //if both sides have a king and an octa, with the octas being the same color
+
+    if (Count(Bitboards[t]) > 0 || Count(Bitboards[T]) > 0 || 
+        Count(Bitboards[c]) > 0 || Count(Bitboards[C]) > 0 || 
+        Count(Bitboards[i]) > 0 || Count(Bitboards[I]) > 0) return false;
+
+    int black_octas = Count(Bitboards[o]);
+    int white_octas = Count(Bitboards[O]);
+    int black_dodecas = Count(Bitboards[d]);
+    int white_dodecas = Count(Bitboards[D]);
+
+    // If both sides only have one octa but on different colored squares, no draw.
+    if (black_octas == 1 && white_octas == 1 && black_dodecas + white_dodecas == 0 &&
+        (BitScanForward(Bitboards[o]) % 2) != (BitScanForward(Bitboards[O]) % 2))
+        return false;
+
+    //If either side has more than one minor piece, no draw
+    if (black_octas + black_dodecas > 1 ||
+        white_octas + white_dodecas > 1) return false;
+
+    //If both sides have at least one minor piece, no draw
+    if (black_octas + black_dodecas == 1 && white_octas + white_dodecas == 1) return false;
+
+    return true;
+}
 
 static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
@@ -2410,6 +2477,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         capture = get_move_capture(move.encoding);
         promotion = get_move_promotion(move.encoding);
 
+
         MakeKnownMove(id, side, type, capture, promotion, source, target);
 
         if (IsInCheck(id, side, type, target, sphere_source)) {
@@ -2417,10 +2485,13 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
             continue;
         }
 
-        if (!IsRepeated(move.key))
+
+        /*if (TURN > 20 && (type == T || capture < 6)) //For testing purpose. Must remove
+            score = DRAW_VALUE;
+        else */if (!IsRepeated(move.key))
             score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, 0, static_eval, -beta, -alpha);
         else
-            score = -MATE_VALUE;
+            score = DRAW_VALUE;
 
         ReverseMove(id, side, type, capture, promotion, source, target);
 
@@ -2445,6 +2516,8 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     if (!thread_stopped) {
         if (legal_moves == 0) // we don't have any legal moves to make in the current postion
             globals[id].search_result.flag = (in_check) ? CHECKMATE : STALEMATE;
+        else if (IsDrawnGame(globals[id].search_result.move))
+            globals[id].search_result.flag = DRAW_GAME;
         else
             globals[id].search_result.flag = FOUND_MOVE;
         
@@ -2510,7 +2583,7 @@ void init_all()
 
 void SwitchTurnValues(Move move) {
     //Switch sides and readjust key variables
-    UpdateRepeatList(move.key);
+    AddToMoveList(move);
     SIDE = !SIDE;
     ResetTimeNodeValues();
     thread_stopped = false;
@@ -2616,6 +2689,11 @@ void SelfPlay() {
         }
         else if (search_result.flag == STALEMATE) {
             printf("STALEMATE!\nGAME OVER!\n");
+            PrintEndGameMetrics(false);
+            break;
+        }
+        else if (search_result.flag == DRAW_GAME) {
+            printf("DRAW!\nGAME OVER!\n");
             PrintEndGameMetrics(false);
             break;
         }
