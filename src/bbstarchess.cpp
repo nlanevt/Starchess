@@ -588,83 +588,6 @@ U64 get_random_U64_number()
 /**********************************\
  ==================================
  
-        Transposition Table
- 
- ==================================
-\**********************************/
-
-//TODO: This Transposition Table approach has collisions, i.e. errors
-// Needs to be removed or adjusted in the future.
-
-// random piece keys [piece][block]
-U64 piece_keys[12][343];
-enum {TT_ALPHA, TT_EXACT, TT_BETA};
-
-struct TTEntry {
-    U64 key;
-    uint16_t turn;
-    uint8_t depth;
-    int score;
-};
-
-// hash table size
-#define HASH_SIZE 0x750000
-TTEntry TransTable[HASH_SIZE][2];
-
-// init random hash keys
-void init_random_keys()
-{
-    // update pseudo random number state
-    random_state = 1804289383;
-
-    // loop over piece codes
-    for (int piece = T; piece <= s; piece++)
-    {
-        // loop over board squares
-        for (int block = 0; block < 343; block++)
-            // init random piece keys
-            piece_keys[piece][block] = get_random_U64_number();
-    }
-}
-
-U64 BuildTranspositionKey() {
-    U64 key = 0;
-    Int343 bitboard;
-    int block;
-    for (int piece = T; piece <= s; piece++) {
-        bitboard = Bitboards[piece];
-        while((block = ForwardScanPop(&bitboard)) >= 0) {
-            key ^= piece_keys[piece][block];
-        }
-    }
-
-    return key;
-}
-
-static inline U64 GetTTKey(U64 initial_key, char side, char exact_type, char capture, int source, int target) {
-    U64 trans_key = initial_key ^ side;
-    trans_key = trans_key ^ (piece_keys[exact_type][source]) ^ (piece_keys[exact_type][target]);
-    return (capture < 6) ? trans_key ^ (piece_keys[(side * 6) + capture][target]) : trans_key;
-}
-
-static inline TTEntry* GetTTEntry(U64 key) {
-    TTEntry *tt_entry = &TransTable[key % HASH_SIZE][0];
-    if (tt_entry->turn == TURN && tt_entry->key != key) tt_entry = &TransTable[key % HASH_SIZE][1];
-    return tt_entry;
-}
-
-//hash_key = prev_key ^ (piece_key + dst);
-void ClearTranspositionTable() {
-    //int trans_size = 343 * 343 * 6 * DEPTH; //Set everything in the trans table to 0.
-    for (int i = 0; i < HASH_SIZE; i++) {
-        TransTable[i][0] = {0, 0, 0, 0};
-        TransTable[i][1] = {0, 0, 0, 0};
-    }
-}
-
-/**********************************\
- ==================================
- 
               Attacks
  
  ==================================
@@ -1177,16 +1100,90 @@ inline Int343 GetCubeMoves(char id, int block) {
     return attacks;
 }
 
-#define IsPromotion(side, attack_type, dst_block) (attack_type == T && ((side == white && (dst_block < 49)) || (side == black && (dst_block >= 294))))
-#define IsCapture(capture) (capture < NO_CAPTURE)
+#define IsPromotion(side, block) ((side == white && (block < 49)) || (side == black && (block >= 294)))
+#define IsCapture(capture) (capture != NO_CAPTURE)
 
-inline int GetCapture(char id, char side, int attack_type, int dst_block) {
+inline int GetCapture(char id, char side, int attack_type, int target) {
     for (int type = 0; type < 6; type++) {
-        if (GetBit(globals[id].Bitboards[((!side)*6) + type], dst_block)) {
+        if (GetBit(globals[id].Bitboards[((!side)*6) + type], target)) {
             return type;
         }
     }
     return NO_CAPTURE; 
+}
+
+/**********************************\
+ ==================================
+ 
+        Transposition Table
+ 
+ ==================================
+\**********************************/
+
+// random piece keys [piece][block]
+U64 piece_keys[12][343];
+//enum {TT_ALPHA, TT_EXACT, TT_BETA};
+
+struct TTEntry {
+    U64 key;
+    uint16_t turn;
+    uint8_t depth;
+    int score;
+};
+
+// hash table size
+#define HASH_SIZE 0x750000
+TTEntry TransTable[HASH_SIZE][2];
+
+// init random hash keys
+void init_random_keys()
+{
+    // update pseudo random number state
+    random_state = 1804289383;
+
+    // loop over piece codes
+    for (int piece = T; piece <= s; piece++)
+    {
+        // loop over board squares
+        for (int block = 0; block < 343; block++)
+            // init random piece keys
+            piece_keys[piece][block] = get_random_U64_number();
+    }
+}
+
+U64 BuildTranspositionKey() {
+    U64 key = 0;
+    Int343 bitboard;
+    int block;
+    for (int piece = T; piece <= s; piece++) {
+        bitboard = Bitboards[piece];
+        while((block = ForwardScanPop(&bitboard)) >= 0) {
+            key ^= piece_keys[piece][block];
+        }
+    }
+
+    return key;
+}
+
+static inline U64 GetTTKey(U64 initial_key, char side, char exact_type, char capture, int source, int target) {
+    U64 trans_key = initial_key ^ side;
+    trans_key = trans_key ^ (piece_keys[exact_type][source]) ^ (piece_keys[exact_type][target]);
+    return (IsCapture(capture)) ? trans_key ^ (piece_keys[(side * 6) + capture][target]) : trans_key;
+}
+
+static inline TTEntry* GetTTEntry(U64 key) {
+    TTEntry *tt_entry = &TransTable[key % HASH_SIZE][0];
+    if (tt_entry->turn == TURN && tt_entry->key != key) tt_entry = &TransTable[key % HASH_SIZE][1];
+    return tt_entry;
+}
+
+//hash_key = prev_key ^ (piece_key + dst);
+void ClearTranspositionTable() {
+    //int trans_size = 343 * 343 * 6 * DEPTH; //Set everything in the trans table to 0.
+    for (int i = 0; i < HASH_SIZE; i++) {
+        TransTable[i][0] = {0, 0, 0, 0};
+        TransTable[i][1] = {0, 0, 0, 0};
+    }
 }
 
 /**********************************\
@@ -1663,7 +1660,7 @@ static inline int score_move(char id, int ply_depth, char side, char type, char 
     if (tt_entry->key == key && tt_entry->turn == TURN) { //Transposition Table pieces go first
         return 10000;
     }
-    else if (capture < 6) { 
+    else if (IsCapture(capture)) { 
         return mvv_lva[type][capture] + 9000;
     }
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
@@ -1683,7 +1680,7 @@ static inline int score_move(char id, int ply_depth, char side, char type, char 
 }
 
 static inline int score_quiescence(char side, char type, char capture) {
-    if (capture < 6) {
+    if (IsCapture(capture)) {
         if (type < capture)
             return mvv_lva[type][capture] + 10000;
         else if (type == capture)
@@ -1745,14 +1742,14 @@ bool IsThreefoldRepetition(Move move) {
 //Doesn't necessarily use 50 as the threshold
 bool IsEmptyMoveRule(Move move) {
     bool fifty_rule = false;
-    if (TURN >= EMPTY_MOVE_THRESHOLD && get_move_piece(move.encoding) != T && get_move_capture(move.encoding) >= 6) {
+    if (TURN >= EMPTY_MOVE_THRESHOLD && get_move_piece(move.encoding) != T && !IsCapture(get_move_capture(move.encoding))) {
         fifty_rule = true;
         int cap = 0;
         char type, capture;
         for (int i = (TURN < MOVES_LIST_SIZE) ? TURN-2 : MOVES_LIST_SIZE-1; cap < EMPTY_MOVE_THRESHOLD && i >= 0; i--, cap++) {
             type = get_move_piece(moves_list[i].encoding);
             capture = get_move_capture(moves_list[i].encoding);
-            if (type == T || capture < 6) {
+            if (type == T || IsCapture(capture)) {
                 fifty_rule = false;
                 break;
             }
@@ -1810,11 +1807,12 @@ bool IsDrawnGame(Move move) {
 
 //Used by UI and SelfPlay
 inline int MakeMove(char side, int attacker, int src_block, int dst_block) {
-    if (!IsPromotion(side, attacker, dst_block)) {
+    if (attacker != T || !IsPromotion(side, dst_block)) {
         PopBit(Bitboards[(side*6) + attacker], src_block);
         SetBit(Bitboards[(side*6) + attacker], dst_block);
     }
     else {
+        printf("<promotion>");
         PopBit(Bitboards[(side*6) + T], src_block); //Remove tetra from side at source
         SetBit(Bitboards[(side*6) + I], dst_block); //Add icosa to side at target
     }
@@ -1849,7 +1847,7 @@ inline void MakeKnownMove(char id, char side, int attacker, char capture, char p
     PopBit(globals[id].Occupancies[both], src_block);
     SetBit(globals[id].Occupancies[both], dst_block);
 
-    if (capture < 6) {
+    if (IsCapture(capture)) {
         PopBit(globals[id].Bitboards[((!side)*6) + capture], dst_block);
         PopBit(globals[id].Occupancies[!side], dst_block);
     }
@@ -1869,7 +1867,7 @@ inline void ReverseMove(char id, char side, int attacker, char capture, char pro
     SetBit(globals[id].Occupancies[side], src_block);
     PopBit(globals[id].Occupancies[both], dst_block);
     SetBit(globals[id].Occupancies[both], src_block);
-    if (capture < 6) {
+    if (IsCapture(capture)) {
         SetBit(globals[id].Bitboards[((!side)*6) + capture], dst_block);
         SetBit(globals[id].Occupancies[!side], dst_block);
         SetBit(globals[id].Occupancies[both], dst_block);
@@ -1926,10 +1924,9 @@ static inline int GetOrderValue(char type, U64 key) {
 }
 
 static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
-    int source, target;
-    char capture, promotion;
+    int source, target, score;
+    char capture;
     Int343 piece_set; Int343 moves;
-    int score;
     U64 key;
     
     //Tetras
@@ -1938,10 +1935,9 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
         moves = GetValidTetraMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, T, target);
-            promotion = (side == white && (target < 49)) || (side == black && (target >= 294));
             key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
-            score = score_move(id, depth, side, T, capture, promotion, source, target, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, T, capture, promotion), score});
+            score = score_move(id, depth, side, T, capture, IsPromotion(side, target), source, target, key);
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, T, capture, IsPromotion(side, target)), score});
         }
     }
 
@@ -2009,7 +2005,7 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
 
 static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_key, char order_type) {
     int source, target;
-    char capture, promotion;
+    char capture;
     Int343 piece_set; Int343 moves;
     U64 key;
     int order_value = 0;
@@ -2020,10 +2016,9 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
         moves = GetValidTetraMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, T, target);
-            promotion = (side == white && (target < 49)) || (side == black && (target >= 294));
             key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
             order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, T, capture, promotion), order_value});
+            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, T, capture, IsPromotion(side, target)), order_value});
         }
     }
 
@@ -2090,10 +2085,9 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
 }
 
 static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key) {
-    int source, target;
-    char capture, promotion;
+    int source, target, score;
+    char capture;
     Int343 piece_set; Int343 moves;
-    int score;
     U64 key;
 
     //Tetras
@@ -2102,10 +2096,9 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
         moves = GetValidTetraMoves(id, side, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, T, target);
-            promotion = (side == white && (target < 49)) || (side == black && (target >= 294));
             key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
             score = score_quiescence(side, T, capture);
-            globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, T, capture, promotion), score});
+            globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, T, capture, IsPromotion(side, target)), score});
         }
     }
 
@@ -2260,6 +2253,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
         }
         else {
             capture = get_move_capture(move.encoding);
+            promotion = get_move_promotion(move.encoding);
 
             //Move Count and Futility Pruning
             if (promotion == 0) {
@@ -2270,7 +2264,6 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
             source = get_move_source(move.encoding);
             target = get_move_target(move.encoding);
             type = get_move_piece(move.encoding);
-            promotion = get_move_promotion(move.encoding);
 
             MakeKnownMove(id, side, type, capture, promotion, source, target);
 
@@ -2288,7 +2281,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
                 tt_entry->key = move.key;
                 tt_entry->turn = TURN;
                 tt_entry->depth = ply_depth;
-                tt_entry->score = score; //Set TTEntry score
+                tt_entry->score = score; 
             }
         }
 
@@ -2310,6 +2303,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
 
 //pp_eval = static eval from this sides last turn, so the turn before the last turn
 //p_eval = static eval from the last turn, so the opponents turn that led to this one.
+//p_move = previous move.encoding that caused this search
 static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, int p_move, int pp_eval, int p_eval, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
     if(thread_stopped || TimedOut(id)) return DRAW_VALUE; //Times out search
@@ -2354,7 +2348,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         }
 
         //Probability Cut
-        if (ply_depth > 3 && (get_move_capture(p_move) < 6 || get_move_promotion(p_move) != 0)) {
+        if (ply_depth > 3 && (IsCapture(get_move_capture(p_move)) || get_move_promotion(p_move) != 0)) {
             int bound = beta + 191 - 54 * improving;
             score = Search(id, ply_depth - 3, side, prev_key, true, p_move, pp_eval, p_eval, -bound, -bound+1);
             if (score >= bound)
@@ -2386,13 +2380,13 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             //Early Pruning
             if (!in_check && promotion == 0) {
                 //Move Count Pruning, only for non-tetra quiet moves, when legal moves is over futility count
-                if (capture >= 6 && legal_moves >= futility_move_count && type != T) continue;
+                if (!IsCapture(capture) && legal_moves >= futility_move_count && type != T) continue;
 
                 //Futility Pruning
                 if (ply_depth <= 4 && legal_moves > 0) {
-                    if (capture >= 6 && static_eval + futility_margin[ply_depth] <= alpha) continue; //Quiet Moves
-                    if (capture < 6 && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
-                    //if (capture < 6 && (static_eval + 180 + 201 * ply_depth + material_score[capture]) <= alpha) continue; //Captures
+                    if (!IsCapture(capture) && static_eval + futility_margin[ply_depth] <= alpha) continue; //Quiet Moves
+                    if (IsCapture(capture) && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
+                    //if (IsCapture(capture) && (static_eval + 180 + 201 * ply_depth + material_score[capture]) <= alpha) continue; //Captures
                 }
             }
 
@@ -2415,7 +2409,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 if (!in_check && 
                     legal_moves >= FullDepthMoves && 
                     ply_depth >= ReductionLimit &&
-                    capture >= 6 &&
+                    !IsCapture(capture) &&
                     promotion == 0) 
                     score = -Search(id, ply_depth - 2, !side, move.key, true, move.encoding, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
                 else 
@@ -2436,14 +2430,14 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 tt_entry->key = move.key;
                 tt_entry->turn = TURN;
                 tt_entry->depth = ply_depth;
-                tt_entry->score = score; //Set TTEntry score
+                tt_entry->score = score; 
             }
         }  
         
         legal_moves++;
 
         if (score >= beta) {
-            if (capture >= 6) {
+            if (!IsCapture(capture)) {
                 globals[id].killer_moves[1][ply_depth-1] = globals[id].killer_moves[0][ply_depth-1];
                 globals[id].killer_moves[0][ply_depth-1] = move;
             }
@@ -2721,7 +2715,7 @@ void SelfPlay() {
 
         //Print out testing/logging info
         printf("[Turn=%d|Depth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n", 
-                TURN, DEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (capture < 6) ? ascii_pieces[capture] : 'X', 
+                TURN, DEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X', 
                 search_result.score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (stop_game) ? " >> TIMEOUT" : "");
 
         //Switch sides and readjust key variables
