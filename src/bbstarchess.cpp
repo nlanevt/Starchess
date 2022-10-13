@@ -493,7 +493,6 @@ void parse_fen(char *fen) {
 }
 
 void print_full_board() {
-    char output[343];
     string piece = "0";
     int block = 0;
     bool piece_found = false;
@@ -1829,7 +1828,7 @@ inline int MakeMove(char side, int attacker, int src_block, int dst_block) {
             return type;
         }
     }
-    return 6; 
+    return NO_CAPTURE; 
 }
 
 inline void MakeKnownMove(char id, char side, int attacker, char capture, char promotion, int src_block, int dst_block) {
@@ -2277,7 +2276,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
             ReverseMove(id, side, type, capture, promotion, source, target);
 
             //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
-            if (tt_entry->turn != TURN|| (tt_entry->key == move.key && ply_depth > tt_entry->depth)) {
+            if (tt_entry->turn != TURN || (tt_entry->key == move.key && ply_depth > tt_entry->depth)) {
                 tt_entry->key = move.key;
                 tt_entry->turn = TURN;
                 tt_entry->depth = ply_depth;
@@ -2365,7 +2364,8 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     int futility_move_count = FutilityMoveCount(improving, ply_depth);
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
-
+        capture = get_move_capture(move.encoding);
+        
         tt_entry = GetTTEntry(move.key);
         if (tt_entry->key == move.key && 
             tt_entry->turn == TURN && 
@@ -2374,7 +2374,6 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         }
         else {
             type = get_move_piece(move.encoding);
-            capture = get_move_capture(move.encoding);
             promotion = get_move_promotion(move.encoding);
 
             //Early Pruning
@@ -2497,7 +2496,6 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
             ReverseMove(id, side, type, capture, promotion, source, target);
             continue;
         }
-
 
         if (!IsRepeated(move.key))
             score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, 0, static_eval, -beta, -alpha);  
@@ -2723,6 +2721,34 @@ void SelfPlay() {
     }
 }
 
+//Unity GUI Plugin Support
+#define DllExport __attribute__(( visibility("default")))
+extern "C"
+{
+    DllExport void InitAll() {
+        init_all();
+    }
+
+    DllExport void MakeBBMove(int side, int type, int source, int target) {
+        char capture = MakeMove(side, type, source, target);
+        U64 key = GetTTKey(BuildTranspositionKey(), side, (side * 6) + type, capture, source, target);
+        SwitchTurnValues({key, encode_move(source, target, type, capture, 0), 0});
+    }
+
+    DllExport int Search(int depth, int side) {
+        SearchResult search_result = SearchRoot(depth, side);
+        if (search_result.flag == CHECKMATE) return CHECKMATE;
+        else if (search_result.flag == STALEMATE) return STALEMATE;
+        else if (search_result.flag == DRAW_GAME) return DRAW_GAME;
+        
+        return search_result.move.encoding;
+    }
+
+    DllExport int CountPieces(int side, int type) {
+        return Count(Bitboards[(side * 6) + type]);
+    }
+}
+
 /*
 * TODO: 
 * X Create FEN strings so that board has a starting setup
@@ -2757,7 +2783,7 @@ void SelfPlay() {
 * X Fix / Fully Test Transposition Table
 * X Implement Search Timeout
 * - Implement multi-thread searching during player's turn
-* - Transfer code to Unreal Engine
+* Y Transfer code to Unity
 */
 int main() {
     // debug mode variable
