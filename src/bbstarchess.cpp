@@ -31,6 +31,7 @@ enum {NO_MOVE, FOUND_MOVE};
 const char CHECKMATE = 100;
 const char STALEMATE = 101;
 const char DRAW_GAME = 102;
+const char NO_CAPTURE = 6;
 
 // convert ASCII character pieces to encoded constants
 int char_pieces[] = {
@@ -1177,6 +1178,7 @@ inline Int343 GetCubeMoves(char id, int block) {
 }
 
 #define IsPromotion(side, attack_type, dst_block) (attack_type == T && ((side == white && (dst_block < 49)) || (side == black && (dst_block >= 294))))
+#define IsCapture(capture) (capture < NO_CAPTURE)
 
 inline int GetCapture(char id, char side, int attack_type, int dst_block) {
     for (int type = 0; type < 6; type++) {
@@ -1184,10 +1186,8 @@ inline int GetCapture(char id, char side, int attack_type, int dst_block) {
             return type;
         }
     }
-    return 6; 
+    return NO_CAPTURE; 
 }
-
-
 
 /**********************************\
  ==================================
@@ -1702,28 +1702,109 @@ static inline int score_quiescence(char side, char type, char capture) {
  ==================================
 \**********************************/
 
-const size_t MOVES_LIST_SIZE = 500;
+const size_t MOVES_LIST_SIZE = 1000;
+const size_t EMPTY_MOVE_THRESHOLD = 100;
 OrderedMoves ordered_moves[DEPTH];
 OrderedMoves quiescence_moves[QDEPTH];
 Move moves_list[MOVES_LIST_SIZE];
 
 static inline void AddToMoveList(Move new_move) {
-    if (TURN >= MOVES_LIST_SIZE) {
+    if (TURN < MOVES_LIST_SIZE) {
+        moves_list[TURN] = new_move;
+    }
+    else {
         for (int i = 0; i < MOVES_LIST_SIZE - 1; i++) {
             moves_list[i] = moves_list[i+1];
         }
+        moves_list[MOVES_LIST_SIZE-1] = new_move;
     }
-    
-    moves_list[TURN-1] = new_move;
 }
 
-static inline bool IsRepeated(U64 position) {
-    if (TURN > 4 && 
-        (position == moves_list[TURN-1].key || position == moves_list[TURN-2].key || position == moves_list[TURN-3].key)) {
+static inline bool IsRepeated(U64 new_position) {
+    if (TURN > 4 && new_position == moves_list[TURN-4].key) {
         printf("<Repeat>");
         return true;
     }
-    //return position == repeat_list[2] || position == repeat_list[3] || position == repeat_list[4];
+    return false;
+}
+
+bool IsThreefoldRepetition(Move move) {
+    //threefold repetition
+    int repetition_counter = 0;
+    for (int i = (TURN < MOVES_LIST_SIZE) ? TURN-2 : MOVES_LIST_SIZE-1; i >= 0; i--) {
+        if (move.key == moves_list[i].key) repetition_counter++;
+        if (repetition_counter >= 3) {
+            printf("<ThreefoldRepeatDraw>");
+            return true;
+        }
+    }
+
+    return false;
+}
+
+//Doesn't necessarily use 50 as the threshold
+bool IsEmptyMoveRule(Move move) {
+    bool fifty_rule = false;
+    if (TURN >= EMPTY_MOVE_THRESHOLD && get_move_piece(move.encoding) != T && get_move_capture(move.encoding) >= 6) {
+        fifty_rule = true;
+        int cap = 0;
+        char type, capture;
+        for (int i = (TURN < MOVES_LIST_SIZE) ? TURN-2 : MOVES_LIST_SIZE-1; cap < EMPTY_MOVE_THRESHOLD && i >= 0; i--, cap++) {
+            type = get_move_piece(moves_list[i].encoding);
+            capture = get_move_capture(moves_list[i].encoding);
+            if (type == T || capture < 6) {
+                fifty_rule = false;
+                break;
+            }
+        }
+    }
+
+    if (fifty_rule) {
+        printf("<EmptyMoveDraw>");
+    }
+
+    return fifty_rule;
+}
+
+bool IsInsufficientMaterial() {
+    //If both sides only have one king
+    //if one side has only one minor piece (dodeca, octa) and opponent is bare
+    //if both sides have a king and an octa, with the octas being the same color
+    if (Count(Bitboards[t]) > 0 || Count(Bitboards[T]) > 0 || 
+        Count(Bitboards[c]) > 0 || Count(Bitboards[C]) > 0 || 
+        Count(Bitboards[i]) > 0 || Count(Bitboards[I]) > 0) return false;
+
+    int black_octas = Count(Bitboards[o]);
+    int white_octas = Count(Bitboards[O]);
+    int black_dodecas = Count(Bitboards[d]);
+    int white_dodecas = Count(Bitboards[D]);
+
+    // If both sides only have one octa but on different colored squares, no draw.
+    if (black_octas == 1 && white_octas == 1 && black_dodecas + white_dodecas == 0 &&
+        (BitScanForward(Bitboards[o]) % 2) != (BitScanForward(Bitboards[O]) % 2))
+        return false;
+
+    //If either side has more than one minor piece, no draw
+    if (black_octas + black_dodecas > 1 ||
+        white_octas + white_dodecas > 1) return false;
+
+    //If both sides have at least one minor piece, no draw
+    if (black_octas + black_dodecas == 1 && white_octas + white_dodecas == 1) return false;
+
+    printf("<InsufficientMaterial>");
+    return true;
+}
+
+bool IsDrawnGame(Move move) {
+    //threefold repetition
+    if (IsThreefoldRepetition(move)) return true;
+
+    //fifty move rule: if after fifty moves no pawn was moved and no captures occurred.
+    if (IsEmptyMoveRule(move)) return true;
+    
+    //Insufficient Material
+    if (IsInsufficientMaterial()) return true;
+    
     return false;
 }
 
@@ -2153,67 +2234,6 @@ inline int FutilityMoveCount(bool improving, int depth) {
                      : (17 + depth * depth) / 2;
 }
 
-bool IsDrawnGame(Move move) {
-    //threefold repetition
-    int repetition_counter = 0;
-    for (int i = (TURN <= MOVES_LIST_SIZE) ? TURN-1 : MOVES_LIST_SIZE-1; i >= 0; i--) {
-        if (move.key == moves_list[i].key) repetition_counter++;
-        if (repetition_counter >= 3) {
-            printf("<ThreefoldRepeatDraw>");
-            return true;
-        }
-    }
-
-    //fifty move: if after fifty moves no pawn was moved and no captures occurred.
-    /*if (TURN > 50 && get_move_piece(move.encoding) != T && get_move_capture(move.encoding) >= 6) {
-        bool fifty_check = true;
-        printf("<2>");
-        int cap = 0;
-        for (int i = (TURN <= MOVES_LIST_SIZE) ? TURN-1 : MOVES_LIST_SIZE-1; cap < 50 && i >= 0; i--, cap++) {
-            if (get_move_piece(moves_list[i].encoding) == T || get_move_capture(moves_list[i].encoding) < 6) {
-                fifty_check = false;
-                printf("<1>");
-                break;
-            }
-        }
-
-        if (fifty_check) {
-            printf("<FiftyCheckDraw>");
-            return true;
-        }
-    }*/
-
-    
-
-    //Check for insufficient material conditions
-    //If both sides only have one king
-    //if one side has only one minor piece (dodeca, octa) and opponent is bare
-    //if both sides have a king and an octa, with the octas being the same color
-
-    if (Count(Bitboards[t]) > 0 || Count(Bitboards[T]) > 0 || 
-        Count(Bitboards[c]) > 0 || Count(Bitboards[C]) > 0 || 
-        Count(Bitboards[i]) > 0 || Count(Bitboards[I]) > 0) return false;
-
-    int black_octas = Count(Bitboards[o]);
-    int white_octas = Count(Bitboards[O]);
-    int black_dodecas = Count(Bitboards[d]);
-    int white_dodecas = Count(Bitboards[D]);
-
-    // If both sides only have one octa but on different colored squares, no draw.
-    if (black_octas == 1 && white_octas == 1 && black_dodecas + white_dodecas == 0 &&
-        (BitScanForward(Bitboards[o]) % 2) != (BitScanForward(Bitboards[O]) % 2))
-        return false;
-
-    //If either side has more than one minor piece, no draw
-    if (black_octas + black_dodecas > 1 ||
-        white_octas + white_dodecas > 1) return false;
-
-    //If both sides have at least one minor piece, no draw
-    if (black_octas + black_dodecas == 1 && white_octas + white_dodecas == 1) return false;
-
-    return true;
-}
-
 static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
     int sphere_source = (side == white) ? BitScanForward(globals[id].Bitboards[S]) : BitScanForward(globals[id].Bitboards[s]);
@@ -2264,7 +2284,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
             ReverseMove(id, side, type, capture, promotion, source, target);
 
             //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
-            if (tt_entry->turn != TURN || (tt_entry->key == move.key && ply_depth > tt_entry->depth)) {
+            if (tt_entry->turn != TURN|| (tt_entry->key == move.key && ply_depth > tt_entry->depth)) {
                 tt_entry->key = move.key;
                 tt_entry->turn = TURN;
                 tt_entry->depth = ply_depth;
@@ -2477,7 +2497,6 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         capture = get_move_capture(move.encoding);
         promotion = get_move_promotion(move.encoding);
 
-
         MakeKnownMove(id, side, type, capture, promotion, source, target);
 
         if (IsInCheck(id, side, type, target, sphere_source)) {
@@ -2486,12 +2505,10 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         }
 
 
-        /*if (TURN > 20 && (type == T || capture < 6)) //For testing purpose. Must remove
-            score = DRAW_VALUE;
-        else */if (!IsRepeated(move.key))
-            score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, 0, static_eval, -beta, -alpha);
+        if (!IsRepeated(move.key))
+            score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, 0, static_eval, -beta, -alpha);  
         else
-            score = DRAW_VALUE;
+            score = -MATE_VALUE;
 
         ReverseMove(id, side, type, capture, promotion, source, target);
 
