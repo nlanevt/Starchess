@@ -17,7 +17,7 @@ using namespace std;
 //#define start_position "c000000000o00cdoc0cod0o0sio0doc0codc00o000000000cttt00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000TTTC0D0000000O00CDOC0COD0O0SIO0DOC0CODC00O0000000D0C w"
 
 // unicode pieces
-char *unicode_pieces[12] = {(char *)"♙", (char *)"♘", (char *)"♗", (char *)"♖", (char *)"♕", (char *)"♔", 
+char *unicode_pieces[12] = {(char *)"♙", (char *)"♘", (char *)"♗", (char *)"♖", (char *)"♕", (char *)"♔",
                             (char *)"♟︎", (char *)"♞", (char *)"♝", (char *)"♜", (char *)"♛", (char *)"♚"};
 // ASCII pieces
 char ascii_pieces[] = "TDOCIStdocis";
@@ -74,67 +74,67 @@ enum {
     UP_WEST,    //LSB
     DOWN_WEST,  //MSB
     DOWN_NORTH, //LSB
-    DOWN_SOUTH  //MSB 
+    DOWN_SOUTH  //MSB
 };
 
 //board blocks (z, y, x);
 // blacks are in A, B depths;
-// Whites start in F and G depths; 
+// Whites start in F and G depths;
 enum {
-    A1a, A1b, A1c, A1d, A1e, A1f, A1g, 
-    A2a, A2b, A2c, A2d, A2e, A2f, A2g, 
-    A3a, A3b, A3c, A3d, A3e, A3f, A3g, 
-    A4a, A4b, A4c, A4d, A4e, A4f, A4g, 
-    A5a, A5b, A5c, A5d, A5e, A5f, A5g, 
-    A6a, A6b, A6c, A6d, A6e, A6f, A6g, 
-    A7a, A7b, A7c, A7d, A7e, A7f, A7g, 
+    A1a, A1b, A1c, A1d, A1e, A1f, A1g,
+    A2a, A2b, A2c, A2d, A2e, A2f, A2g,
+    A3a, A3b, A3c, A3d, A3e, A3f, A3g,
+    A4a, A4b, A4c, A4d, A4e, A4f, A4g,
+    A5a, A5b, A5c, A5d, A5e, A5f, A5g,
+    A6a, A6b, A6c, A6d, A6e, A6f, A6g,
+    A7a, A7b, A7c, A7d, A7e, A7f, A7g,
 
-    B1a, B1b, B1c, B1d, B1e, B1f, B1g, 
-    B2a, B2b, B2c, B2d, B2e, B2f, B2g, 
-    B3a, B3b, B3c, B3d, B3e, B3f, B3g, 
-    B4a, B4b, B4c, B4d, B4e, B4f, B4g, 
-    B5a, B5b, B5c, B5d, B5e, B5f, B5g, 
-    B6a, B6b, B6c, B6d, B6e, B6f, B6g, 
-    B7a, B7b, B7c, B7d, B7e, B7f, B7g, 
+    B1a, B1b, B1c, B1d, B1e, B1f, B1g,
+    B2a, B2b, B2c, B2d, B2e, B2f, B2g,
+    B3a, B3b, B3c, B3d, B3e, B3f, B3g,
+    B4a, B4b, B4c, B4d, B4e, B4f, B4g,
+    B5a, B5b, B5c, B5d, B5e, B5f, B5g,
+    B6a, B6b, B6c, B6d, B6e, B6f, B6g,
+    B7a, B7b, B7c, B7d, B7e, B7f, B7g,
 
-    C1a, C1b, C1c, C1d, C1e, C1f, C1g, 
-    C2a, C2b, C2c, C2d, C2e, C2f, C2g, 
-    C3a, C3b, C3c, C3d, C3e, C3f, C3g, 
-    C4a, C4b, C4c, C4d, C4e, C4f, C4g, 
-    C5a, C5b, C5c, C5d, C5e, C5f, C5g, 
-    C6a, C6b, C6c, C6d, C6e, C6f, C6g, 
-    C7a, C7b, C7c, C7d, C7e, C7f, C7g, 
+    C1a, C1b, C1c, C1d, C1e, C1f, C1g,
+    C2a, C2b, C2c, C2d, C2e, C2f, C2g,
+    C3a, C3b, C3c, C3d, C3e, C3f, C3g,
+    C4a, C4b, C4c, C4d, C4e, C4f, C4g,
+    C5a, C5b, C5c, C5d, C5e, C5f, C5g,
+    C6a, C6b, C6c, C6d, C6e, C6f, C6g,
+    C7a, C7b, C7c, C7d, C7e, C7f, C7g,
 
-    D1a, D1b, D1c, D1d, D1e, D1f, D1g, 
-    D2a, D2b, D2c, D2d, D2e, D2f, D2g, 
-    D3a, D3b, D3c, D3d, D3e, D3f, D3g, 
-    D4a, D4b, D4c, D4d, D4e, D4f, D4g, 
-    D5a, D5b, D5c, D5d, D5e, D5f, D5g, 
-    D6a, D6b, D6c, D6d, D6e, D6f, D6g, 
-    D7a, D7b, D7c, D7d, D7e, D7f, D7g, 
+    D1a, D1b, D1c, D1d, D1e, D1f, D1g,
+    D2a, D2b, D2c, D2d, D2e, D2f, D2g,
+    D3a, D3b, D3c, D3d, D3e, D3f, D3g,
+    D4a, D4b, D4c, D4d, D4e, D4f, D4g,
+    D5a, D5b, D5c, D5d, D5e, D5f, D5g,
+    D6a, D6b, D6c, D6d, D6e, D6f, D6g,
+    D7a, D7b, D7c, D7d, D7e, D7f, D7g,
 
-    E1a, E1b, E1c, E1d, E1e, E1f, E1g, 
-    E2a, E2b, E2c, E2d, E2e, E2f, E2g, 
-    E3a, E3b, E3c, E3d, E3e, E3f, E3g, 
-    E4a, E4b, E4c, E4d, E4e, E4f, E4g, 
-    E5a, E5b, E5c, E5d, E5e, E5f, E5g, 
-    E6a, E6b, E6c, E6d, E6e, E6f, E6g, 
-    E7a, E7b, E7c, E7d, E7e, E7f, E7g, 
+    E1a, E1b, E1c, E1d, E1e, E1f, E1g,
+    E2a, E2b, E2c, E2d, E2e, E2f, E2g,
+    E3a, E3b, E3c, E3d, E3e, E3f, E3g,
+    E4a, E4b, E4c, E4d, E4e, E4f, E4g,
+    E5a, E5b, E5c, E5d, E5e, E5f, E5g,
+    E6a, E6b, E6c, E6d, E6e, E6f, E6g,
+    E7a, E7b, E7c, E7d, E7e, E7f, E7g,
 
-    F1a, F1b, F1c, F1d, F1e, F1f, F1g, 
-    F2a, F2b, F2c, F2d, F2e, F2f, F2g, 
-    F3a, F3b, F3c, F3d, F3e, F3f, F3g, 
-    F4a, F4b, F4c, F4d, F4e, F4f, F4g, 
-    F5a, F5b, F5c, F5d, F5e, F5f, F5g, 
-    F6a, F6b, F6c, F6d, F6e, F6f, F6g, 
-    F7a, F7b, F7c, F7d, F7e, F7f, F7g, 
+    F1a, F1b, F1c, F1d, F1e, F1f, F1g,
+    F2a, F2b, F2c, F2d, F2e, F2f, F2g,
+    F3a, F3b, F3c, F3d, F3e, F3f, F3g,
+    F4a, F4b, F4c, F4d, F4e, F4f, F4g,
+    F5a, F5b, F5c, F5d, F5e, F5f, F5g,
+    F6a, F6b, F6c, F6d, F6e, F6f, F6g,
+    F7a, F7b, F7c, F7d, F7e, F7f, F7g,
 
-    G1a, G1b, G1c, G1d, G1e, G1f, G1g, 
-    G2a, G2b, G2c, G2d, G2e, G2f, G2g, 
-    G3a, G3b, G3c, G3d, G3e, G3f, G3g, 
-    G4a, G4b, G4c, G4d, G4e, G4f, G4g, 
-    G5a, G5b, G5c, G5d, G5e, G5f, G5g, 
-    G6a, G6b, G6c, G6d, G6e, G6f, G6g, 
+    G1a, G1b, G1c, G1d, G1e, G1f, G1g,
+    G2a, G2b, G2c, G2d, G2e, G2f, G2g,
+    G3a, G3b, G3c, G3d, G3e, G3f, G3g,
+    G4a, G4b, G4c, G4d, G4e, G4f, G4g,
+    G5a, G5b, G5c, G5d, G5e, G5f, G5g,
+    G6a, G6b, G6c, G6d, G6e, G6f, G6g,
     G7a, G7b, G7c, G7d, G7e, G7f, G7g
 };
 
@@ -147,13 +147,11 @@ enum {
  ==================================
 \**********************************/
 #define U64 unsigned long long
-const int U343_SIZE = 6;
-const int U343_COUNT = 343;
 
 struct Int343 {
 
 public:
-    U64 Bits[U343_SIZE];
+    U64 Bits[6];
 
     Int343() {
         Bits[0] = 0;
@@ -298,7 +296,7 @@ public:
     }
 
     inline bool operator!() {
-        return !Bits[5] && !Bits[4] && !Bits[3] && 
+        return !Bits[5] && !Bits[4] && !Bits[3] &&
                !Bits[2] && !Bits[1] && !Bits[0];
     }
 };
@@ -454,7 +452,7 @@ void parse_fen(char *fen) {
 
         for (int rank = 0; rank < 7; rank++) {
 
-            for (int file = 0; file < 7; file++) {  
+            for (int file = 0; file < 7; file++) {
                 int block = (depth * 49) + (rank * 7) + file;
 
                 // match ascii pieces within FEN string
@@ -632,7 +630,7 @@ Int343 build_tetra_attacks(char side, int block) {
         if (Count((bitboard >> 56) & not_7_file) > 0) attacks |= (bitboard >> 56); // down
     }
     else {
-        if (Count((bitboard << 50) & not_a_file) > 0) attacks |= (bitboard << 50); 
+        if (Count((bitboard << 50) & not_a_file) > 0) attacks |= (bitboard << 50);
         if (Count((bitboard << 48) & not_g_file) > 0) attacks |= (bitboard << 48);
         if (Count((bitboard << 42) & not_7_file) > 0) attacks |= (bitboard << 42);
         if (Count((bitboard << 56) & not_1_file) > 0) attacks |= (bitboard << 56);
@@ -646,7 +644,7 @@ Int343 build_tetra_moves(char side, int block) {
     Int343 moves; //result attacks board
     Int343 bitboard; // piece bitboard
 
-    SetBit(bitboard, block); 
+    SetBit(bitboard, block);
 
     if (!side) {
         moves |= (bitboard >> 49);
@@ -662,7 +660,7 @@ Int343 build_tetra_isolation_mask(int rf) {
     Int343 mask; Int343 bit;
     SetBit(bit, 0);
     for (int d = 0; d < 7; d++) {
-        if ((rf % 7) > 0) mask |= (bit << ((d * 49) + rf - 1)); //Left File 
+        if ((rf % 7) > 0) mask |= (bit << ((d * 49) + rf - 1)); //Left File
         if ((rf % 7) < 6) mask |= (bit << ((d * 49) + rf + 1)); //Right file
         if (rf > 6) mask |= (bit << ((d * 49) + rf - 7)); //Below file
         if (rf < 42) mask |= (bit << ((d * 49) + rf + 7)); //Below file
@@ -678,7 +676,7 @@ Int343 build_tetra_isolation_mask(int rf) {
 //>>13 down left
 //>>15 down right
 //>>63 down forward
-//<<35 down back
+//<35 down back
 Int343 build_dodeca_attacks(int block) {
     Int343 attacks; //result attacks board
     Int343 bitboard; // piece bitboard
@@ -686,34 +684,34 @@ Int343 build_dodeca_attacks(int block) {
     SetBit(bitboard, block);
 
     if (Count((bitboard >> 97) & not_a_file) > 0) attacks |= (bitboard >> 97); //Forward
-    if (Count((bitboard >> 99) & not_g_file) > 0) attacks |= (bitboard >> 99); 
-    if (Count((bitboard >> 105) & not_7_file) > 0) attacks |= (bitboard >> 105); 
-    if (Count((bitboard >> 91) & not_1_file) > 0) attacks |= (bitboard >> 91); 
+    if (Count((bitboard >> 99) & not_g_file) > 0) attacks |= (bitboard >> 99);
+    if (Count((bitboard >> 105) & not_7_file) > 0) attacks |= (bitboard >> 105);
+    if (Count((bitboard >> 91) & not_1_file) > 0) attacks |= (bitboard >> 91);
 
     if (Count((bitboard >> 13) & not_67_file & not_a_file) > 0) attacks |= (bitboard >> 13); //Down
     if (Count((bitboard >> 15) & not_67_file & not_g_file) > 0) attacks |= (bitboard >> 15);
     if (Count((bitboard >> 63) & not_67_file) > 0) attacks |= (bitboard >> 63);
     if (Count((bitboard << 35) & not_67_file) > 0) attacks |= (bitboard << 35);
 
-    if (Count((bitboard << 13) & not_12_file & not_g_file) > 0) attacks |= (bitboard << 13); //Up 
+    if (Count((bitboard << 13) & not_12_file & not_g_file) > 0) attacks |= (bitboard << 13); //Up
     if (Count((bitboard << 15) & not_12_file & not_a_file) > 0) attacks |= (bitboard << 15);
     if (Count((bitboard << 63) & not_12_file) > 0) attacks |= (bitboard << 63);
     if (Count((bitboard >> 35) & not_12_file) > 0) attacks |= (bitboard >> 35);
 
     if (Count((bitboard << 97 & not_g_file)) > 0) attacks |= (bitboard << 97); //Backward
-    if (Count((bitboard << 99) & not_a_file) > 0) attacks |= (bitboard << 99); 
-    if (Count((bitboard << 105) & not_1_file) > 0) attacks |= (bitboard << 105); 
-    if (Count((bitboard << 91) & not_7_file) > 0) attacks |= (bitboard << 91); 
+    if (Count((bitboard << 99) & not_a_file) > 0) attacks |= (bitboard << 99);
+    if (Count((bitboard << 105) & not_1_file) > 0) attacks |= (bitboard << 105);
+    if (Count((bitboard << 91) & not_7_file) > 0) attacks |= (bitboard << 91);
 
     if (Count((bitboard >> 9) & not_fg_file & not_7_file) > 0) attacks |= (bitboard >> 9); //Left
-    if (Count((bitboard << 5) & not_fg_file & not_1_file) > 0) attacks |= (bitboard << 5); 
-    if (Count((bitboard >> 51) & not_fg_file) > 0) attacks |= (bitboard >> 51); 
-    if (Count((bitboard << 47) & not_fg_file) > 0) attacks |= (bitboard << 47); 
+    if (Count((bitboard << 5) & not_fg_file & not_1_file) > 0) attacks |= (bitboard << 5);
+    if (Count((bitboard >> 51) & not_fg_file) > 0) attacks |= (bitboard >> 51);
+    if (Count((bitboard << 47) & not_fg_file) > 0) attacks |= (bitboard << 47);
 
     if (Count((bitboard << 9) & not_ab_file & not_1_file) > 0) attacks |= (bitboard << 9); //Right
-    if (Count((bitboard >> 5 & not_ab_file) & not_7_file) > 0) attacks |= (bitboard >> 5); 
-    if (Count((bitboard >> 47 & not_ab_file)) > 0) attacks |= (bitboard >> 47); 
-    if (Count((bitboard << 51) & not_ab_file) > 0) attacks |= (bitboard << 51); 
+    if (Count((bitboard >> 5 & not_ab_file) & not_7_file) > 0) attacks |= (bitboard >> 5);
+    if (Count((bitboard >> 47 & not_ab_file)) > 0) attacks |= (bitboard >> 47);
+    if (Count((bitboard << 51) & not_ab_file) > 0) attacks |= (bitboard << 51);
 
     return attacks;
 }
@@ -741,7 +739,7 @@ Int343 build_octa_attacks(int block, int is_mask) {
     for (d = td - 1, r = tr + 1, f = tf; d >= min && r <= max; d--, r++) attacks |= (bit << ((d * 49) + (r * 7) + f)); //UP SOUTH
     for (d = td, r = tr + 1, f = tf + 1; r <= max && f <= max; r++, f++) attacks |= (bit << ((d * 49) + (r * 7) + f)); //UP EAST
     for (d = td, r = tr + 1, f = tf - 1; r <= max && f >= min; r++, f--) attacks |= (bit << ((d * 49) + (r * 7) + f)); //UP WEST*/
-    for (d = td + 1, r = tr - 1, f = tf; d <= max && r >= min; d++, r--) attacks |= (bit << ((d * 49) + (r * 7) + f));//DOWN NORTH        
+    for (d = td + 1, r = tr - 1, f = tf; d <= max && r >= min; d++, r--) attacks |= (bit << ((d * 49) + (r * 7) + f));//DOWN NORTH
     for (d = td - 1, r = tr - 1, f = tf; d >= min && r >= min; d--, r--) attacks |= (bit << ((d * 49) + (r * 7) + f)); //DOWN SOUTH
     for (d = td, r = tr - 1, f = tf + 1; r >= min && f <= max; r--, f++) attacks |= (bit << ((d * 49) + (r * 7) + f)); //DOWN EAST
     for (d = td, r = tr - 1, f = tf - 1; r >= min && f >= min; r--, f--) attacks |= (bit << ((d * 49) + (r * 7) + f)); //DOWN WEST*/
@@ -781,23 +779,23 @@ Int343 build_sphere_attacks(int block) {
     SetBit(bitboard, block);
 
     if (Count((bitboard >> 49)) > 0) attacks |= (bitboard >> 49); //Forward
-    if (Count((bitboard >> 42) & not_1_file) > 0) attacks |= (bitboard >> 42); 
-    if (Count((bitboard >> 48) & not_a_file) > 0) attacks |= (bitboard >> 48); 
+    if (Count((bitboard >> 42) & not_1_file) > 0) attacks |= (bitboard >> 42);
+    if (Count((bitboard >> 48) & not_a_file) > 0) attacks |= (bitboard >> 48);
     if (Count((bitboard >> 50) & not_g_file) > 0) attacks |= (bitboard >> 50);
     if (Count((bitboard >> 56) & not_7_file) > 0) attacks |= (bitboard >> 56);
 
     if (Count((bitboard << 49)) > 0) attacks |= (bitboard << 49); //Backward
-    if (Count((bitboard << 42) & not_7_file) > 0) attacks |= (bitboard << 42); 
-    if (Count((bitboard << 48) & not_g_file) > 0) attacks |= (bitboard << 48); 
+    if (Count((bitboard << 42) & not_7_file) > 0) attacks |= (bitboard << 42);
+    if (Count((bitboard << 48) & not_g_file) > 0) attacks |= (bitboard << 48);
     if (Count((bitboard << 50) & not_a_file) > 0) attacks |= (bitboard << 50);
     if (Count((bitboard << 56) & not_1_file) > 0) attacks |= (bitboard << 56);
 
     if (Count((bitboard << 6) & not_1_file & not_g_file) > 0) attacks |= (bitboard << 6); //Up
-    if (Count((bitboard << 7) & not_1_file) > 0) attacks |= (bitboard << 7); 
+    if (Count((bitboard << 7) & not_1_file) > 0) attacks |= (bitboard << 7);
     if (Count((bitboard << 8) & not_1_file & not_a_file) > 0) attacks |= (bitboard << 8);
 
     if (Count((bitboard >> 6) & not_7_file & not_a_file) > 0) attacks |= (bitboard >> 6); //Down
-    if (Count((bitboard >> 7) & not_7_file) > 0) attacks |= (bitboard >> 7); 
+    if (Count((bitboard >> 7) & not_7_file) > 0) attacks |= (bitboard >> 7);
     if (Count((bitboard >> 8) & not_7_file & not_g_file) > 0) attacks |= (bitboard >> 8);
 
     if (Count((bitboard >> 1) & not_g_file) > 0) attacks |= (bitboard >> 1); //Left
@@ -834,7 +832,7 @@ Int343 build_ray(int block, int direction) {
     else if (direction == UP_SOUTH) for (d = td - 1, r = tr + 1, f = tf; d >= min && r <= max; d--, r++) attacks |= (bit << ((d * 49) + (r * 7) + f)); //UP SOUTH
     else if (direction == UP_EAST) for (d = td, r = tr + 1, f = tf + 1; r <= max && f <= max; r++, f++) attacks |= (bit << ((d * 49) + (r * 7) + f)); //UP EAST
     else if (direction == UP_WEST) for (d = td, r = tr + 1, f = tf - 1; r <= max && f >= min; r++, f--) attacks |= (bit << ((d * 49) + (r * 7) + f)); //UP WEST*/
-    else if (direction == DOWN_NORTH) for (d = td + 1, r = tr - 1, f = tf; d <= max && r >= min; d++, r--) attacks |= (bit << ((d * 49) + (r * 7) + f));//DOWN NORTH        
+    else if (direction == DOWN_NORTH) for (d = td + 1, r = tr - 1, f = tf; d <= max && r >= min; d++, r--) attacks |= (bit << ((d * 49) + (r * 7) + f));//DOWN NORTH
     else if (direction == DOWN_SOUTH) for (d = td - 1, r = tr - 1, f = tf; d >= min && r >= min; d--, r--) attacks |= (bit << ((d * 49) + (r * 7) + f)); //DOWN SOUTH
     else if (direction == DOWN_EAST) for (d = td, r = tr - 1, f = tf + 1; r >= min && f <= max; r--, f++) attacks |= (bit << ((d * 49) + (r * 7) + f)); //DOWN EAST
     else if (direction == DOWN_WEST) for (d = td, r = tr - 1, f = tf - 1; r >= min && f >= min; r--, f--) attacks |= (bit << ((d * 49) + (r * 7) + f)); //DOWN WEST*/
@@ -890,7 +888,7 @@ Int343 SetNotXFile() {
 
         for (int rank = 0; rank < 7; rank++) {
 
-            for (int file = 0; file < 7; file++) {  
+            for (int file = 0; file < 7; file++) {
                 int block = (depth * 49) + (rank * 7) + file;
 
                 if ((block % 49) > 13)
@@ -946,7 +944,7 @@ const size_t MAX_MOVE_COUNT_SIZE = 400;
 
 struct Move {
     U64 key;
-    int encoding;
+    long encoding;
     int score;
 
     void Clear() {
@@ -1027,7 +1025,7 @@ Global globals[MAX_SEARCH_THREADS];
 
 // extract promotion flag
 //00000111000000000000000000000000
-#define get_move_promotion(move) ((move & 0x7000000) >> 24) 
+#define get_move_promotion(move) ((move & 0x7000000) >> 24)
 
 //TODO: These definitions are currently not in use, and will likely never be. Perhaps they should be removed.
 /*#define GetValidTetraMoves(side, block) (tetra_attacks[side][block] & Occupancies[!side]) | (tetra_moves[side][block] ^ (tetra_moves[side][block] & Occupancies[both]))
@@ -1108,7 +1106,7 @@ inline int GetCapture(char id, char side, int attack_type, int target) {
             return type;
         }
     }
-    return NO_CAPTURE; 
+    return NO_CAPTURE;
 }
 
 /**********************************\
@@ -1199,7 +1197,7 @@ const int DRAW_VALUE = 0;
 const int INFINITY = 50000;
 
 //Positional score board
-const int position_scores[6][343] = 
+const int position_scores[6][343] =
 {{  // Tetra position scores
     90,  90,  90,  90,  90,  90,  90,
     90,  90,  90,  90,  90,  90,  90,
@@ -1541,60 +1539,60 @@ const int position_scores[6][343] =
 // mirror positional score tables for opposite side
 const int mirror_score[343] =
 {
-    G1a, G1b, G1c, G1d, G1e, G1f, G1g, 
-    G2a, G2b, G2c, G2d, G2e, G2f, G2g, 
-    G3a, G3b, G3c, G3d, G3e, G3f, G3g, 
-    G4a, G4b, G4c, G4d, G4e, G4f, G4g, 
-    G5a, G5b, G5c, G5d, G5e, G5f, G5g, 
-    G6a, G6b, G6c, G6d, G6e, G6f, G6g, 
+    G1a, G1b, G1c, G1d, G1e, G1f, G1g,
+    G2a, G2b, G2c, G2d, G2e, G2f, G2g,
+    G3a, G3b, G3c, G3d, G3e, G3f, G3g,
+    G4a, G4b, G4c, G4d, G4e, G4f, G4g,
+    G5a, G5b, G5c, G5d, G5e, G5f, G5g,
+    G6a, G6b, G6c, G6d, G6e, G6f, G6g,
     G7a, G7b, G7c, G7d, G7e, G7f, G7g,
 
-    F1a, F1b, F1c, F1d, F1e, F1f, F1g, 
-    F2a, F2b, F2c, F2d, F2e, F2f, F2g, 
-    F3a, F3b, F3c, F3d, F3e, F3f, F3g, 
-    F4a, F4b, F4c, F4d, F4e, F4f, F4g, 
-    F5a, F5b, F5c, F5d, F5e, F5f, F5g, 
-    F6a, F6b, F6c, F6d, F6e, F6f, F6g, 
+    F1a, F1b, F1c, F1d, F1e, F1f, F1g,
+    F2a, F2b, F2c, F2d, F2e, F2f, F2g,
+    F3a, F3b, F3c, F3d, F3e, F3f, F3g,
+    F4a, F4b, F4c, F4d, F4e, F4f, F4g,
+    F5a, F5b, F5c, F5d, F5e, F5f, F5g,
+    F6a, F6b, F6c, F6d, F6e, F6f, F6g,
     F7a, F7b, F7c, F7d, F7e, F7f, F7g,
 
-    E1a, E1b, E1c, E1d, E1e, E1f, E1g, 
-    E2a, E2b, E2c, E2d, E2e, E2f, E2g, 
-    E3a, E3b, E3c, E3d, E3e, E3f, E3g, 
-    E4a, E4b, E4c, E4d, E4e, E4f, E4g, 
-    E5a, E5b, E5c, E5d, E5e, E5f, E5g, 
-    E6a, E6b, E6c, E6d, E6e, E6f, E6g, 
-    E7a, E7b, E7c, E7d, E7e, E7f, E7g, 
+    E1a, E1b, E1c, E1d, E1e, E1f, E1g,
+    E2a, E2b, E2c, E2d, E2e, E2f, E2g,
+    E3a, E3b, E3c, E3d, E3e, E3f, E3g,
+    E4a, E4b, E4c, E4d, E4e, E4f, E4g,
+    E5a, E5b, E5c, E5d, E5e, E5f, E5g,
+    E6a, E6b, E6c, E6d, E6e, E6f, E6g,
+    E7a, E7b, E7c, E7d, E7e, E7f, E7g,
 
-    D1a, D1b, D1c, D1d, D1e, D1f, D1g, 
-    D2a, D2b, D2c, D2d, D2e, D2f, D2g, 
-    D3a, D3b, D3c, D3d, D3e, D3f, D3g, 
-    D4a, D4b, D4c, D4d, D4e, D4f, D4g, 
-    D5a, D5b, D5c, D5d, D5e, D5f, D5g, 
-    D6a, D6b, D6c, D6d, D6e, D6f, D6g, 
-    D7a, D7b, D7c, D7d, D7e, D7f, D7g, 
+    D1a, D1b, D1c, D1d, D1e, D1f, D1g,
+    D2a, D2b, D2c, D2d, D2e, D2f, D2g,
+    D3a, D3b, D3c, D3d, D3e, D3f, D3g,
+    D4a, D4b, D4c, D4d, D4e, D4f, D4g,
+    D5a, D5b, D5c, D5d, D5e, D5f, D5g,
+    D6a, D6b, D6c, D6d, D6e, D6f, D6g,
+    D7a, D7b, D7c, D7d, D7e, D7f, D7g,
 
-    C1a, C1b, C1c, C1d, C1e, C1f, C1g, 
-    C2a, C2b, C2c, C2d, C2e, C2f, C2g, 
-    C3a, C3b, C3c, C3d, C3e, C3f, C3g, 
-    C4a, C4b, C4c, C4d, C4e, C4f, C4g, 
-    C5a, C5b, C5c, C5d, C5e, C5f, C5g, 
-    C6a, C6b, C6c, C6d, C6e, C6f, C6g, 
-    C7a, C7b, C7c, C7d, C7e, C7f, C7g, 
+    C1a, C1b, C1c, C1d, C1e, C1f, C1g,
+    C2a, C2b, C2c, C2d, C2e, C2f, C2g,
+    C3a, C3b, C3c, C3d, C3e, C3f, C3g,
+    C4a, C4b, C4c, C4d, C4e, C4f, C4g,
+    C5a, C5b, C5c, C5d, C5e, C5f, C5g,
+    C6a, C6b, C6c, C6d, C6e, C6f, C6g,
+    C7a, C7b, C7c, C7d, C7e, C7f, C7g,
 
-    B1a, B1b, B1c, B1d, B1e, B1f, B1g, 
-    B2a, B2b, B2c, B2d, B2e, B2f, B2g, 
-    B3a, B3b, B3c, B3d, B3e, B3f, B3g, 
-    B4a, B4b, B4c, B4d, B4e, B4f, B4g, 
-    B5a, B5b, B5c, B5d, B5e, B5f, B5g, 
-    B6a, B6b, B6c, B6d, B6e, B6f, B6g, 
+    B1a, B1b, B1c, B1d, B1e, B1f, B1g,
+    B2a, B2b, B2c, B2d, B2e, B2f, B2g,
+    B3a, B3b, B3c, B3d, B3e, B3f, B3g,
+    B4a, B4b, B4c, B4d, B4e, B4f, B4g,
+    B5a, B5b, B5c, B5d, B5e, B5f, B5g,
+    B6a, B6b, B6c, B6d, B6e, B6f, B6g,
     B7a, B7b, B7c, B7d, B7e, B7f, B7g,
 
-    A1a, A1b, A1c, A1d, A1e, A1f, A1g, 
-    A2a, A2b, A2c, A2d, A2e, A2f, A2g, 
-    A3a, A3b, A3c, A3d, A3e, A3f, A3g, 
-    A4a, A4b, A4c, A4d, A4e, A4f, A4g, 
-    A5a, A5b, A5c, A5d, A5e, A5f, A5g, 
-    A6a, A6b, A6c, A6d, A6e, A6f, A6g, 
+    A1a, A1b, A1c, A1d, A1e, A1f, A1g,
+    A2a, A2b, A2c, A2d, A2e, A2f, A2g,
+    A3a, A3b, A3c, A3d, A3e, A3f, A3g,
+    A4a, A4b, A4c, A4d, A4e, A4f, A4g,
+    A5a, A5b, A5c, A5d, A5e, A5f, A5g,
+    A6a, A6b, A6c, A6d, A6e, A6f, A6g,
     A7a, A7b, A7c, A7d, A7e, A7f, A7g
 };
 
@@ -1624,8 +1622,8 @@ inline int Evaluation(char id, char side, bool in_check) {
     score += (side == white) ? 10 : -10; //Add points for tempo
 
     //Add white scores
-    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
-        score += material_score[T]; score += position_scores[T][block]; 
+    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {
+        score += material_score[T]; score += position_scores[T][block];
         score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0;
     }
     bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block]; }
@@ -1638,8 +1636,8 @@ inline int Evaluation(char id, char side, bool in_check) {
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
 
     //Subtract black scores (material_score contains negative values)
-    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
-        score += material_score[t]; score -= position_scores[T][mirror_score[block]]; 
+    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) {
+        score += material_score[t]; score -= position_scores[T][mirror_score[block]];
         score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
     }
     bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; }
@@ -1659,7 +1657,7 @@ static inline int score_move(char id, int ply_depth, char side, char type, char 
     if (tt_entry->key == key && tt_entry->turn == TURN) { //Transposition Table pieces go first
         return 10000;
     }
-    else if (IsCapture(capture)) { 
+    else if (IsCapture(capture)) {
         return mvv_lva[type][capture] + 9000;
     }
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
@@ -1766,8 +1764,8 @@ bool IsInsufficientMaterial() {
     //If both sides only have one king
     //if one side has only one minor piece (dodeca, octa) and opponent is bare
     //if both sides have a king and an octa, with the octas being the same color
-    if (Count(Bitboards[t]) > 0 || Count(Bitboards[T]) > 0 || 
-        Count(Bitboards[c]) > 0 || Count(Bitboards[C]) > 0 || 
+    if (Count(Bitboards[t]) > 0 || Count(Bitboards[T]) > 0 ||
+        Count(Bitboards[c]) > 0 || Count(Bitboards[C]) > 0 ||
         Count(Bitboards[i]) > 0 || Count(Bitboards[I]) > 0) return false;
 
     int black_octas = Count(Bitboards[o]);
@@ -1828,7 +1826,7 @@ inline int MakeMove(char side, int attacker, int src_block, int dst_block) {
             return type;
         }
     }
-    return NO_CAPTURE; 
+    return 6;
 }
 
 inline void MakeKnownMove(char id, char side, int attacker, char capture, char promotion, int src_block, int dst_block) {
@@ -2245,8 +2243,8 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
         move = globals[id].quiescence_moves[ply_depth-1].moves[i];
         
         tt_entry = GetTTEntry(move.key);
-        if (tt_entry->key == move.key && 
-            tt_entry->turn == TURN && 
+        if (tt_entry->key == move.key &&
+            tt_entry->turn == TURN &&
             tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
             score = tt_entry->score;
         }
@@ -2280,7 +2278,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
                 tt_entry->key = move.key;
                 tt_entry->turn = TURN;
                 tt_entry->depth = ply_depth;
-                tt_entry->score = score; 
+                tt_entry->score = score;
             }
         }
 
@@ -2303,7 +2301,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
 //pp_eval = static eval from this sides last turn, so the turn before the last turn
 //p_eval = static eval from the last turn, so the opponents turn that led to this one.
 //p_move = previous move.encoding that caused this search
-static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, int p_move, int pp_eval, int p_eval, int alpha, int beta) {
+static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, long p_move, int pp_eval, int p_eval, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
     if(thread_stopped || TimedOut(id)) return DRAW_VALUE; //Times out search
     if (ply_depth <= 0) return Quiescence(id, QDEPTH, side, prev_key, alpha, beta);
@@ -2336,7 +2334,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         }
 
         //Null Move Pruning
-        if (null_move) { 
+        if (null_move) {
             if (ply_depth >= 3)
                 score = -Search(id, ply_depth - 3, !side, prev_key, false, p_move, p_eval, static_eval, -beta, -beta + 1);
             else
@@ -2367,8 +2365,8 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         capture = get_move_capture(move.encoding);
         
         tt_entry = GetTTEntry(move.key);
-        if (tt_entry->key == move.key && 
-            tt_entry->turn == TURN && 
+        if (tt_entry->key == move.key &&
+            tt_entry->turn == TURN &&
             tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
             score = tt_entry->score;
         }
@@ -2405,13 +2403,13 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, p_eval, static_eval, -beta, -alpha);
             }
             else { //Late Move Reduction (LMR)
-                if (!in_check && 
-                    legal_moves >= FullDepthMoves && 
+                if (!in_check &&
+                    legal_moves >= FullDepthMoves &&
                     ply_depth >= ReductionLimit &&
                     !IsCapture(capture) &&
-                    promotion == 0) 
+                    promotion == 0)
                     score = -Search(id, ply_depth - 2, !side, move.key, true, move.encoding, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
-                else 
+                else
                     score = alpha + 1;
 
                 // if found a better move during LMR then do PVS
@@ -2429,9 +2427,9 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 tt_entry->key = move.key;
                 tt_entry->turn = TURN;
                 tt_entry->depth = ply_depth;
-                tt_entry->score = score; 
+                tt_entry->score = score;
             }
-        }  
+        }
         
         legal_moves++;
 
@@ -2462,7 +2460,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
 static inline void SearchRootHelper(char id, int ply_depth, char side) {
     int alpha = -INFINITY;
     int beta = INFINITY;
-    int score;
+    int score = 0;
     Move move;
     char type, capture, promotion; int source, target;
     int legal_moves = 0;
@@ -2498,13 +2496,13 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         }
 
         if (!IsRepeated(move.key))
-            score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, 0, static_eval, -beta, -alpha);  
+            score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, 0, static_eval, -beta, -alpha);
         else
             score = -MATE_VALUE;
 
         ReverseMove(id, side, type, capture, promotion, source, target);
 
-        legal_moves++;     
+        legal_moves++;
 
         //printf("\n|Move=%d|Score=%d|Alpha=%d|Type=%d|Source=%d|Target=%d|MoveScore=%d|", i, score, alpha, ascii_pieces[move.type], move.source, move.target, move.score);
 
@@ -2560,7 +2558,7 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
     for (int id = 0; id < MAX_SEARCH_THREADS; id++) {
         threads.emplace_back([id, ply_depth, side]{
             SearchRootHelper(id, ply_depth, side);
-        }); 
+        });
     }
 
     for (int id = 0; id < MAX_SEARCH_THREADS; id++) {
@@ -2616,7 +2614,7 @@ void TestBitBoards() {
         if (block >= max) block = 0;
         cout << ">> " << block;
         getline(cin, response);
-        //bits = 
+        //bits =
         //print_bitboard(bits);
         printf("white: %d, black: %d", position_scores[T][block], position_scores[T][mirror_score[block]]);
         block++;
@@ -2712,8 +2710,8 @@ void SelfPlay() {
         }
 
         //Print out testing/logging info
-        printf("[Turn=%d|Depth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n", 
-                TURN, DEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X', 
+        printf("[Turn=%d|Depth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n",
+                TURN, DEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
                 search_result.score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (stop_game) ? " >> TIMEOUT" : "");
 
         //Switch sides and readjust key variables
@@ -2721,7 +2719,6 @@ void SelfPlay() {
     }
 }
 
-//Unity GUI Plugin Support
 #define DllExport __attribute__(( visibility("default")))
 extern "C"
 {
@@ -2735,7 +2732,7 @@ extern "C"
         SwitchTurnValues({key, encode_move(source, target, type, capture, 0), 0});
     }
 
-    DllExport int Search(int depth, int side) {
+    DllExport long Search(int depth, int side) {
         SearchResult search_result = SearchRoot(depth, side);
         if (search_result.flag == CHECKMATE) return CHECKMATE;
         else if (search_result.flag == STALEMATE) return STALEMATE;
@@ -2750,7 +2747,7 @@ extern "C"
 }
 
 /*
-* TODO: 
+* TODO:
 * X Create FEN strings so that board has a starting setup
 * X Make the board print out with ascii pieces
 * X Make board interactable, so you can move pieces
@@ -2770,20 +2767,20 @@ extern "C"
 * Y Killer Moves
 * Y Razoring
 * Y Futility Pruning
-* N Evaluation Pruning 
+* N Evaluation Pruning
 * Y Lazy SMP / Multi-threading
 * Y Mate Distance Pruning
 * Y Mate Count Pruning
 * Y Implement Quisesence + Delta Search
 * X Add Code to handle being in_check
-* ? Fully Implement Evaluation 
+* ? Fully Implement Evaluation
 * N Add Mobility Scoring to Evaluation
 * Y Add Check Scoring to Evaluation
 * ? Add Pawn Upgrade
 * X Fix / Fully Test Transposition Table
 * X Implement Search Timeout
 * - Implement multi-thread searching during player's turn
-* Y Transfer code to Unity
+* - Transfer code to Unreal Engine
 */
 int main() {
     // debug mode variable
