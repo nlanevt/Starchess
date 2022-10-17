@@ -328,21 +328,6 @@ static inline int ForwardScanPop(Int343 *bitboard) {
     return -1;
 }
 
-
-//NOTE: Not sure if this is really faster than the normal BitScanForward
-static inline int BitScanForward(Int343 bitboard, int start) {
-    int i = 5 - (start / 64);
-    int index = (5 - i) * 64;
-    for (; i >= 0; i--) {
-        if (bitboard.Bits[i] != 0) {
-            return index + __builtin_ctzll(bitboard.Bits[i]);
-        }
-        index += 64;
-    }
-
-    return -1;
-}
-
 static inline int BitScanForward(Int343 bitboard) {
     int index = 0;
     for (int i = 5; i >= 0; i--) {
@@ -364,6 +349,8 @@ static inline int BitScanReverse(Int343 bitboard) {
 
     return -1;
 }
+
+#define BitScan(side, bitboard) (side == white ? BitScanReverse(bitboard) : BitScanForward(bitboard))
 
 /**********************************\
  ==================================
@@ -1990,7 +1977,7 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
     }
 
     //Sphere
-    source = BitScanForward(globals[id].Bitboards[(side * 6) + S]);
+    source = BitScan(side, globals[id].Bitboards[(side * 6) + S]);
     moves = GetValidSphereMoves(id, side, source);
     while ((target = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, S, target);
@@ -2071,7 +2058,7 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
     }
 
     //Sphere
-    source = BitScanForward(globals[id].Bitboards[(side * 6) + S]);
+    source = BitScan(side, globals[id].Bitboards[(side * 6) + S]);
     moves = GetValidSphereMoves(id, side, source);
     while ((target = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, S, target);
@@ -2148,7 +2135,7 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
     }
 
     //Sphere
-    source = BitScanForward(globals[id].Bitboards[(side * 6) + S]);
+    source = BitScan(side, globals[id].Bitboards[(side * 6) + S]);
     moves = GetValidSphereMoves(id, side, source) & globals[id].Occupancies[!side];
     while ((target = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, S, target);
@@ -2226,7 +2213,7 @@ inline int FutilityMoveCount(bool improving, int depth) {
 
 static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
-    int sphere_source = (side == white) ? BitScanForward(globals[id].Bitboards[S]) : BitScanForward(globals[id].Bitboards[s]);
+    int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
     int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side)) * ((!side) ? 1 : -1);
 
     if (ply_depth <= 0) return score;
@@ -2312,7 +2299,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     if (alpha >= beta) return alpha;
 
     int score;
-    int sphere_source = (side == white) ? BitScanForward(globals[id].Bitboards[S]) : BitScanForward(globals[id].Bitboards[s]);
+    int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
     bool improving = (static_eval - pp_eval) > 0;
@@ -2466,7 +2453,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     int legal_moves = 0;
     U64 start_key = BuildTranspositionKey();
 
-    int sphere_source = (side == white) ? BitScanForward(globals[id].Bitboards[S]) : BitScanForward(globals[id].Bitboards[s]);
+    int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
 
@@ -2740,6 +2727,22 @@ extern "C"
         
         return search_result.move.encoding;
     }
+
+    /*DllExport U64 * GetValidMoves(int side, int type, int source) {
+        switch (type) {
+            case T:
+                return GetValidTetraMoves(char id, char side, int block);
+            case D:
+                return ;
+            case O:
+            
+            case C:
+            case I:
+            case S:
+            default:
+                return 0;
+        }
+    }*/
 
     DllExport int CountPieces(int side, int type) {
         return Count(Bitboards[(side * 6) + type]);
