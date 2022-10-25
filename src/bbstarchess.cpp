@@ -1084,6 +1084,30 @@ inline Int343 GetCubeMoves(char id, int block) {
     return attacks;
 }
 
+inline Int343 GetPossibleTetraMoves(char side, int block) {
+    return tetra_attacks[side][block] | tetra_moves[side][block];
+}
+
+inline Int343 GetPossibleDodecaMoves(int block) {
+    return dodeca_attacks[block];
+}
+
+inline Int343 GetPossibleSphereMoves(int block) {
+    return sphere_attacks[block];
+}
+
+inline Int343 GetPossibleOctaMoves(int block) {
+    Int343 attacks;
+    for (int dir = 6; dir < 18; dir++) attacks |= RAYS[block][dir];
+    return attacks;
+}
+
+inline Int343 GetPossibleCubeMoves(int block) {
+    Int343 attacks;
+    for (int dir = 0; dir < 6; dir++) attacks |= RAYS[block][dir];
+    return attacks;
+}
+
 #define IsPromotion(side, block) ((side == white && (block < 49)) || (side == black && (block >= 294)))
 #define IsCapture(capture) (capture != NO_CAPTURE)
 
@@ -2728,21 +2752,74 @@ extern "C"
         return search_result.move.encoding;
     }
 
-    /*DllExport U64 * GetValidMoves(int side, int type, int source) {
-        switch (type) {
-            case T:
-                return GetValidTetraMoves(char id, char side, int block);
-            case D:
-                return ;
-            case O:
-            
-            case C:
-            case I:
-            case S:
-            default:
-                return 0;
+    DllExport U64 * GetPossibleMoves(int side, int type, int source) {
+        for (int i = 0; i < 12; i++) globals[0].Bitboards[i] = Bitboards[i];
+        for (int i = 0; i < 3; i++) globals[0].Occupancies[i] = Occupancies[i];
+        
+        Int343 moves;
+        
+        if (type == T) {
+            moves = GetPossibleTetraMoves(side, source);
         }
-    }*/
+        else if (type == D) {
+            moves = GetPossibleDodecaMoves(source);
+        }
+        else if (type == O) {
+            moves = GetPossibleOctaMoves(source);
+        }
+        else if (type == C) {
+            moves = GetPossibleCubeMoves(source);
+        }
+        else if (type == I) {
+            moves = GetPossibleOctaMoves(source) | GetPossibleCubeMoves(source);
+        }
+        else if (type == S) {
+            moves = GetPossibleSphereMoves(source);
+        }
+        else {
+            moves = GetPossibleTetraMoves(side, source);
+        }
+                
+        return new U64[6] { moves.Bits[0], moves.Bits[1], moves.Bits[2], moves.Bits[3], moves.Bits[4], moves.Bits[5]};;
+    }
+
+    DllExport U64 * GetValidMoves(int side, int type, int source) {
+        for (int i = 0; i < 12; i++) globals[0].Bitboards[i] = Bitboards[i];
+        for (int i = 0; i < 3; i++) globals[0].Occupancies[i] = Occupancies[i];
+        
+        Int343 moves;
+        
+        if (type == T) {
+            moves = GetValidTetraMoves(0, side, source);
+        }
+        else if (type == D) {
+            moves = GetValidDodecaMoves(0, side, source);
+        }
+        else if (type == O) {
+            moves = GetOctaMoves(0, source);
+            moves ^= (moves & globals[0].Occupancies[side]);
+        }
+        else if (type == C) {
+            moves = GetCubeMoves(0, source);
+            moves ^= (moves & globals[0].Occupancies[side]);
+        }
+        else if (type == I) {
+            moves = GetOctaMoves(0, source) | GetCubeMoves(0, source);
+            moves ^= (moves & globals[0].Occupancies[side]);
+        }
+        else if (type == S) {
+            moves = GetValidSphereMoves(0, side, source);
+        }
+        else {
+            moves = GetValidTetraMoves(0, side, source);
+        }
+        
+        return new U64[6] { moves.Bits[0], moves.Bits[1], moves.Bits[2], moves.Bits[3], moves.Bits[4], moves.Bits[5]};;
+    }
+
+    DllExport void FreeU64Array(U64 * array) {
+      delete[] array;
+    }
 
     DllExport int CountPieces(int side, int type) {
         return Count(Bitboards[(side * 6) + type]);
