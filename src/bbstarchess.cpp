@@ -12,9 +12,64 @@
 
 using namespace std;
 
-#define start_position "ccdddcccooooocdocicoddoisioddocicodcooooocccdddccttttttttttttttttttttttttttttttttttttttttttttttttt000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTCCDDDCCCOOOOOCDOCICODDOISIODDOCICODCOOOOOCCCDDDCC w"
+//#define start_position "ccdddcccooooocdocicoddoisioddocicodcooooocccdddccttttttttttttttttttttttttttttttttttttttttttttttttt000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTCCDDDCCCOOOOOCDOCICODDOISIODDOCICODCOOOOOCCCDDDCC w"
 //#define start_position "ccdddcccooooocdodidoddoisioddodidodcooooocccdddccttttttttttttttttttttttttttttttttttttttttttttttttt000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTCCDDDCCCOOOOOCDODIDODDOISIODDODIDODCOOOOOCCCDDDCC w"
 //#define start_position "c000000000o00cdoc0cod0o0sio0doc0codc00o000000000cttt00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000TTTC0D0000000O00CDOC0COD0O0SIO0DOC0CODC00O0000000D0C w"
+#define start_position  "0000000" \
+                        "0cdodc0" \
+                        "0dioid0" \
+                        "0oosoo0" \
+                        "0dioid0" \
+                        "0cdodc0" \
+                        "0000000" \
+                                  \
+                        "0000000" \
+                        "0ttttt0" \
+                        "0ttttt0" \
+                        "0ttttt0" \
+                        "0ttttt0" \
+                        "0ttttt0" \
+                        "0000000" \
+                                  \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                                  \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                                  \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                        "0000000" \
+                                  \
+                        "0000000" \
+                        "0TTTTT0" \
+                        "0TTTTT0" \
+                        "0TTTTT0" \
+                        "0TTTTT0" \
+                        "0TTTTT0" \
+                        "0000000" \
+                                  \
+                        "0000000" \
+                        "0CDODC0" \
+                        "0DIOID0" \
+                        "0OOSOO0" \
+                        "0DIOID0" \
+                        "0CDODC0" \
+                        "0000000 w" 
 
 // unicode pieces
 char *unicode_pieces[12] = {(char *)"♙", (char *)"♘", (char *)"♗", (char *)"♖", (char *)"♕", (char *)"♔",
@@ -365,8 +420,8 @@ Int343 Occupancies[3]; //occupancy bitboards
 char SIDE = 0; //side to move
 int TURN = 1; //The current turn tracker
 
-const int DEPTH = 6;
-const int QDEPTH = 6;
+const int DEPTH = 7;
+const int QDEPTH = 7;
 
 /**********************************\
  ==================================
@@ -590,10 +645,6 @@ Int343 tetra_attacks[2][343]; // tetra attacks table [side][block]
 Int343 tetra_moves[2][343]; // tetra forward move table [side][block]
 Int343 dodeca_attacks[343]; //dodeca attacks table [block];
 Int343 sphere_attacks[343]; // Sphere attacks table [square]
-//Int343 octa_attacks[343]; //octa attacks table and masks table [block];
-//Int343 octa_masks[343]; //TODO: Removing this causes problems. Figure out why.
-//Int343 cube_attacks[343]; //cube attacks table and masks table [block];
-//Int343 cube_masks[343]; //TODO: Removing this causes problems. Figure out why.
 
 Int343 RAYS[343][18];
 char octa_directions[343][12];
@@ -1252,9 +1303,9 @@ const int position_scores[6][343] =
 
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
+     0,   0, -10,   0, -10,   0,   0,
      0,   0,   0, -10,   0,   0,   0,
-     0,   0, -10, -10, -10,   0,   0,
-     0,   0,   0, -10,   0,   0,   0,
+     0,   0, -10,   0, -10,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
 
@@ -1299,11 +1350,11 @@ const int position_scores[6][343] =
     -5,  -5,  -5,  -5,  -5,  -5,  -5,
 
     -5,  -5,  -5,  -5,  -5,  -5,  -5,
-    -5,   0,   5,   5,   5,   0,  -5,
     -5,   5,   5,   5,   5,   5,  -5,
     -5,   5,   5,   5,   5,   5,  -5,
     -5,   5,   5,   5,   5,   5,  -5,
-    -5,   0,   5,   5,   5,   0,  -5,
+    -5,   5,   5,   5,   5,   5,  -5,
+    -5,   5,   5,   5,   5,   5,  -5,
     -5,  -5,  -5,  -5,  -5,  -5,  -5,
 
     -5,  -5,  -5,  -5,  -5,  -5,  -5,
@@ -1314,13 +1365,13 @@ const int position_scores[6][343] =
     -5,   0,   0,   0,   0,   0,  -5,
     -5,  -5,  -5,  -5,  -5,  -5,  -5,
 
-    -5,  -5, -10, -10, -10,  -5,  -5,
+    -5,  -5,  -5,  -5,  -5,  -5,  -5,
+    -5,   0, -10,   0, -10,   0,  -5,
+    -5, -10,   0,   0,   0, -10,  -5,
     -5,   0,   0,   0,   0,   0,  -5,
-    -10,  0,   0,   0,   0,   0, -10,
-    -10,  0,   0,   0,   0,   0, -10,
-    -10,  0,   0,   0,   0,   0, -10,
-    -5,   0,   0,   0,   0,   0,  -5,
-    -5,  -5, -10, -10, -10,  -5,  -5
+    -5, -10,   0,   0,   0, -10,  -5,
+    -5,   0, -10,   0, -10,   0,  -5,
+    -5,  -5,  -5,  -5,  -5,  -5,  -5
 }, { // Octa Position Scores
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
@@ -1362,13 +1413,13 @@ const int position_scores[6][343] =
      0,   5,   5,   5,   5,   5,   0,
      0,   0,   0,   0,   0,   0,   0,
 
-     0,   0,   0,   0,   0,   0,   0,
-     0,  10,  10,  10,  10,  10,   0,
-     0,  10,   0,   0,   0,  10,   0,
-     0,  10,   0,   0,   0,  10,   0,
-     0,  10,   0,   0,   0,  10,   0,
-     0,  10,  10,  10,  10,  10,   0,
-     0,   0,   0,   0,   0,   0,   0,
+     0,   0,   0,  10,   0,   0,   0,
+     0,   0,   0,  10,   0,   0,   0,
+     0,  10,  10,   0,  10,  10,   0,
+    10,   0,   0,   0,   0,   0,  10,
+     0,  10,  10,   0,  10,  10,   0,
+     0,   0,   0,  10,   0,   0,   0,
+     0,   0,   0,  10,   0,   0,   0,
 
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
@@ -1426,13 +1477,13 @@ const int position_scores[6][343] =
      0,  10,  10,  10,  10,  10,   0,
      0,   0,   0,   0,   0,   0,   0,
 
-    -5,  -5,   0,   0,   0,  -5,  -5,
-    -5,   0,   0,   0,   0,   0,  -5,
+     0,   5,   0,   0,   0,   5,   0,
+     5,  -5,   0,   0,   0,  -5,   5,
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
-    -5,   0,   0,   0,   0,   0,  -5,
-    -5,  -5,   0,   0,   0,  -5,  -5,
+     5,  -5,   0,   0,   0,  -5,   5,
+     0,   5,   0,   0,   0,   5,   0,
 }, { // Icosa Position Scores
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
@@ -1484,9 +1535,9 @@ const int position_scores[6][343] =
 
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
-     0,   0,   0,  50,   0,   0,   0,
      0,   0,  50,   0,  50,   0,   0,
-     0,   0,   0,  50,   0,   0,   0,
+     0,   0,   0,   0,   0,   0,   0,
+     0,   0,  50,   0,  50,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0
 }, { // Sphere position scores
@@ -1540,13 +1591,12 @@ const int position_scores[6][343] =
 
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
-     0,   0,   0, -15,   0,   0,   0,
-     0,   0,  -15,  0, -15,   0,   0,
-     0,   0,   0, -15,   0,   0,   0,
+     0,   0, -15,   0, -15,   0,   0,
+     0,   0,   0,   0,   0,   0,   0,
+     0,   0, -15,   0, -15,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0
 }};
-
 // mirror positional score tables for opposite side
 const int mirror_score[343] =
 {
@@ -1635,13 +1685,13 @@ inline int Evaluation(char id, char side, bool in_check) {
     //Add white scores
     bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {
         score += material_score[T]; score += position_scores[T][block];
-        score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0;
+        score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0; //Deduct for isolated pawns
     }
     bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block]; }
     bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; }
     bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; }
 
-    bitboard = globals[id].Bitboards[I]; count = Count(bitboard); if (count < 4) score -= 100 * (4 - count);
+    bitboard = globals[id].Bitboards[I]; count = Count(bitboard); if (count < 4) score -= 100 * (4 - count); //Deduct for if Icosas are less than 4
     while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; score += position_scores[I][block]; }
 
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
@@ -2231,8 +2281,8 @@ string GetTimeStampString(long long timestamp) {
 }
 
 inline int FutilityMoveCount(bool improving, int depth) {
-    return improving ? (17 + depth * depth)
-                     : (17 + depth * depth) / 2;
+    return improving ? (9 + depth * depth)
+                     : (9 + depth * depth) / 2;
 }
 
 static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
