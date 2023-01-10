@@ -1254,7 +1254,7 @@ const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -32
 const int MATE_SCORE = 48000;
 const int MATE_VALUE = 49000;
 const int DRAW_VALUE = 0;
-const int INFINITY = 50000;
+const int INF = 50000;
 
 //Positional score board
 const int position_scores[6][343] =
@@ -2517,8 +2517,8 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
 }
 
 static inline void SearchRootHelper(char id, int ply_depth, char side) {
-    int alpha = -INFINITY;
-    int beta = INFINITY;
+    int alpha = -INF;
+    int beta = INF;
     int score = 0;
     Move move;
     char type, capture, promotion; int source, target;
