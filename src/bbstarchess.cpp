@@ -13,7 +13,7 @@
 using namespace std;
 
 //#define start_position "ccdddcccooooocdocicoddoisioddocicodcooooocccdddccttttttttttttttttttttttttttttttttttttttttttttttttt000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTCCDDDCCCOOOOOCDOCICODDOISIODDOCICODCOOOOOCCCDDDCC w"
-#define start_position  "0000000" \
+#define START_POSITION  "0000000" \
                         "0cdodc0" \
                         "0dioid0" \
                         "0oosoo0" \
@@ -67,7 +67,7 @@ using namespace std;
                         "0OOSOO0" \
                         "0DIOID0" \
                         "0CDODC0" \
-                        "0000000 w" 
+                        "0000000 w"
 
 // unicode pieces
 char *unicode_pieces[12] = {(char *)"♙", (char *)"♘", (char *)"♗", (char *)"♖", (char *)"♕", (char *)"♔",
@@ -478,7 +478,7 @@ void print_board_enums() {
     }
 }
 
-void parse_fen(char *fen) {
+void init_bitboards(char * fen) {
     // reset board position (bitboards)
     memset(Bitboards, 0ULL, sizeof(Bitboards));
     
@@ -2636,16 +2636,17 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
 }
 
 // init all variables
-void init_all()
+void init_variables()
 {
     init_attacks();
     init_rays_directions_edges();
     init_tetra_isolation_masks();
     init_random_keys();
-    parse_fen((char *)start_position);
     ClearTranspositionTable();
     ResetTimeNodeValues();
 }
+
+//void SetBitboards(
 
 void SwitchTurnValues(Move move) {
     //Switch sides and readjust key variables
@@ -2781,8 +2782,12 @@ void SelfPlay() {
 #define DllExport __attribute__(( visibility("default")))
 extern "C"
 {
-    DllExport void InitAll() {
-        init_all();
+    DllExport void InitVariables() {
+        init_variables();
+    }
+
+    DllExport void InitStartPosition(char * fen) {
+        init_bitboards(fen);
     }
 
     DllExport void MakeBBMove(int side, int type, int source, int target) {
@@ -2839,19 +2844,19 @@ extern "C"
 * X Fix / Fully Test Transposition Table
 * X Implement Search Timeout
 * - Implement multi-thread searching during player's turn
-* - Transfer code to Unreal Engine
+* X Transfer code to Unity
 */
 int main() {
     // debug mode variable
-    int debug = 0;
+    //int debug = 0;
 
-    init_all();
-    //TestBitBoards();
+    init_variables();
+    init_bitboards((char *)START_POSITION);
     SelfPlay();
     //UIPlay();
 
     // if debugging
-    if (debug)
+    /*if (debug)
     {
         // parse fen
        // (parse_fen)(start_position);
@@ -2862,7 +2867,7 @@ int main() {
     else
         // connect to the GUI
        // uci_loop();
-
+    */
     return 0;
 }
 
