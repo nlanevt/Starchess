@@ -2644,6 +2644,7 @@ void init_variables()
     init_random_keys();
     ClearTranspositionTable();
     ResetTimeNodeValues();
+    TURN = 1;
 }
 
 //void SetBitboards(
@@ -2721,6 +2722,9 @@ void SelfPlay() {
     char type, capture, promotion; int source, target;
 
     PrintTitle();
+
+    init_variables();
+    init_bitboards((char *)START_POSITION);
     
     while (true) {
         print_full_board();
@@ -2731,6 +2735,11 @@ void SelfPlay() {
         
         if (!response.compare("exit")) break;
         if (!response.compare("continuous")) is_continuous = 1; //Makes the game keep going without my input
+        if (!response.compare("new")) {
+            init_variables();
+            init_bitboards((char *)START_POSITION);
+            continue;
+        }
 
         printf(">> Generating Moves for %s...\n", (SIDE) ? "BLACK" : "WHITE" );
 
@@ -2752,17 +2761,17 @@ void SelfPlay() {
             if (SIDE == white) printf("BLACK WON!\n");
             else printf("WHITE WON!\n");
             PrintEndGameMetrics(false);
-            break;
+            is_continuous = 0;
         }
         else if (search_result.flag == STALEMATE) {
             printf("STALEMATE!\nGAME OVER!\n");
             PrintEndGameMetrics(false);
-            break;
+            is_continuous = 0;
         }
         else if (search_result.flag == DRAW_GAME) {
             printf("DRAW!\nGAME OVER!\n");
             PrintEndGameMetrics(false);
-            break;
+            is_continuous = 0;
         }
         else {
             printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
@@ -2850,8 +2859,8 @@ int main() {
     // debug mode variable
     //int debug = 0;
 
-    init_variables();
-    init_bitboards((char *)START_POSITION);
+    //init_variables();
+    //init_bitboards((char *)START_POSITION);
     SelfPlay();
     //UIPlay();
 
