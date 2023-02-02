@@ -12,7 +12,8 @@
 
 using namespace std;
 
-//#define start_position "ccdddcccooooocdocicoddoisioddocicodcooooocccdddccttttttttttttttttttttttttttttttttttttttttttttttttt000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTCCDDDCCCOOOOOCDOCICODDOISIODDOCICODCOOOOOCCCDDDCC w"
+//NOTE: GLOBAL = values that must be cleared or changed with a new turn or a new game.
+
 #define START_POSITION  "0000000" \
                         "0cdodc0" \
                         "0dioid0" \
@@ -358,8 +359,6 @@ public:
 #define SetBit(bitboard, block) (bitboard.Bits[5 - (block / 64)] |= 1ULL << (block % 64))
 #define GetBit(bitboard, block) (bitboard.Bits[5 - (block / 64)] & (1ULL << (block % 64)))
 #define PopBit(bitboard, block) (bitboard.Bits[5 - (block / 64)] &= ~(1ULL << (block % 64)))
-//#define PopBit(bitboard, block) (bitboard.Bits[5 - (block / 64)] &= (bitboard.Bits[5 - (block / 64)] - 1)) //TODO: Figure out why this won't work!
-
 #define IsSet(bitboard) (bitboard.Bits[5] > 0 || bitboard.Bits[4] > 0 || bitboard.Bits[3] > 0 || bitboard.Bits[2] > 0 || bitboard.Bits[1] > 0 || bitboard.Bits[0] > 0)
 
 static inline int Count(Int343 bitboard) {
@@ -413,13 +412,13 @@ static inline int BitScanReverse(Int343 bitboard) {
  ==================================
 \**********************************/
 
-Int343 Bitboards[12]; //piece bitboards
-Int343 Occupancies[3]; //occupancy bitboards
-char SIDE = 0; //side to move
-int TURN = 1; //The current turn tracker
+Int343 Bitboards[12]; //piece bitboards //GLOBAL
+Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
+char SIDE = 0; //side to move //GLOBAL
+int TURN = 1; //The current turn tracker //GLOBAL
 
 const int DEPTH = 8;
-const int QDEPTH = 7;
+const int QDEPTH = 7; 
 
 /**********************************\
  ==================================
@@ -945,10 +944,6 @@ void init_attacks() {
         tetra_moves[black][block] = build_tetra_moves(black, block);
         dodeca_attacks[block] = build_dodeca_attacks(block);
         sphere_attacks[block] = build_sphere_attacks(block);
-        //octa_attacks[block] = build_octa_attacks(block, 0);
-        //cube_attacks[block] = build_cube_attacks(block, 0);
-        //octa_masks[block] = build_octa_attacks(block, 1);
-        //cube_masks[block] = build_cube_attacks(block, 1);
     }
 }
 
@@ -984,7 +979,9 @@ struct Move {
     int score;
 
     void Clear() {
+        key = 0;
         encoding = 0;
+        score = 0;
     }
 };
 
@@ -1033,7 +1030,7 @@ struct SearchResult {
 };
 
 const size_t MAX_SEARCH_THREADS = 4;
-Global globals[MAX_SEARCH_THREADS];
+Global globals[MAX_SEARCH_THREADS]; //GLOBAL
 
 // encode move
 #define encode_move(source, target, piece, capture, promotion) \
@@ -1062,11 +1059,6 @@ Global globals[MAX_SEARCH_THREADS];
 // extract promotion flag
 //00000111000000000000000000000000
 #define get_move_promotion(move) ((move & 0x7000000) >> 24)
-
-//TODO: These definitions are currently not in use, and will likely never be. Perhaps they should be removed.
-/*#define GetValidTetraMoves(side, block) (tetra_attacks[side][block] & Occupancies[!side]) | (tetra_moves[side][block] ^ (tetra_moves[side][block] & Occupancies[both]))
-#define GetValidDodecaMoves(side, block) dodeca_attacks[block] ^ (dodeca_attacks[block] & Occupancies[side])
-#define GetValidSphereMoves(side, block) sphere_attacks[block] ^ (sphere_attacks[block] & Occupancies[side])*/
 
 inline Int343 GetValidTetraMoves(char id, char side, int block) {
     Int343 result;
@@ -1177,9 +1169,7 @@ inline int GetCapture(char id, char side, int attack_type, int target) {
  ==================================
 \**********************************/
 
-// random piece keys [piece][block]
-U64 piece_keys[12][343];
-//enum {TT_ALPHA, TT_EXACT, TT_BETA};
+U64 piece_keys[12][343]; //GLOBAL
 
 struct TTEntry {
     U64 key;
@@ -1757,9 +1747,9 @@ static inline int score_quiescence(char side, char type, char capture) {
 
 const size_t MOVES_LIST_SIZE = 1000;
 const size_t EMPTY_MOVE_THRESHOLD = 100;
-OrderedMoves ordered_moves[DEPTH];
-OrderedMoves quiescence_moves[QDEPTH];
-Move moves_list[MOVES_LIST_SIZE];
+OrderedMoves ordered_moves[DEPTH]; //GLOBAL
+OrderedMoves quiescence_moves[QDEPTH]; //GLOBAL
+Move moves_list[MOVES_LIST_SIZE]; //GLOBAL
 
 static inline void AddToMoveList(Move new_move) {
     if (TURN < MOVES_LIST_SIZE) {
@@ -2230,13 +2220,13 @@ const int ReductionLimit = 3; //3
 const int futility_margin[5] = {0, 100, 320, 500, 975};
 const long long TIME_LIMIT = 15000000; //15 seconds
 
-long NODES_SEARCHED = 0;
-int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends.
-long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends.
-long long MAX_SEARCH_TIME = 0;
+long NODES_SEARCHED = 0; //GLOBAL
+int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends. //GLOBAL
+long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends. //GLOBAL
+long long MAX_SEARCH_TIME = 0; //GLOBAL
+bool stop_game = false; //GLOBAL
+bool thread_stopped = false; //GLOBAL
 chrono::time_point<chrono::steady_clock> START_TIME;
-bool stop_game = false;
-bool thread_stopped = false;
 mutex mtx; //Used for locking thread when finishing search
 
 void StartTimer() {
@@ -2266,9 +2256,10 @@ inline bool TimedOut(char id) {
     return false;
 }
 
-void ResetTimeNodeValues() {
+void ClearTimeNodeValues() {
     NODES_SEARCHED = 0;
     stop_game = false;
+    thread_stopped = false;
 }
 
 string GetTimeStampString(long long timestamp) {
@@ -2635,28 +2626,41 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
     return best_result;
 }
 
-// init all variables
-void init_variables()
-{
-    init_attacks();
-    init_rays_directions_edges();
-    init_tetra_isolation_masks();
-    init_random_keys();
-    ClearTranspositionTable();
-    ResetTimeNodeValues();
-    TURN = 1;
-}
-
-//void SetBitboards(
-
 void SwitchTurnValues(Move move) {
     //Switch sides and readjust key variables
     AddToMoveList(move);
     SIDE = !SIDE;
-    ResetTimeNodeValues();
-    thread_stopped = false;
+    ClearTimeNodeValues();
     TURN++;
 }
+
+void ClearMiscTables() {
+    for (int i = 0; i < DEPTH; i++) ordered_moves[i].Clear();
+    for (int i = 0; i < QDEPTH; i++) quiescence_moves[i].Clear();
+    for (int i = 0; i < MOVES_LIST_SIZE; i++) moves_list[i].Clear();
+}
+
+// init all variables
+void init_variables()
+{   //TODO: Separate the static variables from the new_game variables
+
+    //Static variables
+    init_attacks();
+    init_rays_directions_edges();
+    init_tetra_isolation_masks();
+    init_random_keys();
+
+    //New Game Variables
+    ClearTranspositionTable();
+    ClearMiscTables();
+    ClearTimeNodeValues();
+
+    AVERAGE_SEARCH_TIME = 0;
+    MAX_SEARCH_TIME = 0;
+    TIMEOUT_COUNT = 0;
+    TURN = 1;
+}
+
 
 /**********************************\
  ==================================
@@ -2856,27 +2860,15 @@ extern "C"
 * X Transfer code to Unity
 */
 int main() {
-    // debug mode variable
-    //int debug = 0;
 
-    //init_variables();
-    //init_bitboards((char *)START_POSITION);
-    SelfPlay();
-    //UIPlay();
-
-    // if debugging
-    /*if (debug)
-    {
-        // parse fen
-       // (parse_fen)(start_position);
-        //print_board();
-        //search_position(2);
-    }
+    int debug = 0;
     
-    else
-        // connect to the GUI
-       // uci_loop();
-    */
+    // if debugging
+    if (debug)
+    {
+        SelfPlay();
+    }
+
     return 0;
 }
 
