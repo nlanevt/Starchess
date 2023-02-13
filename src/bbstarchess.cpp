@@ -2821,6 +2821,16 @@ extern "C"
     DllExport int CountPieces(int side, int type) {
         return Count(Bitboards[(side * 6) + type]);
     }
+
+    DllExport U64 GetBitboard(int side, int type, int index) {
+        if (index >= 6 || type >= 6) return 0ULL;
+        return Bitboards[(side * 6) + type].Bits[index];
+    }
+
+    DllExport U64 GetOccupancies(int side, int index) {
+        if (side >= 3 || index >= 6) return 0ULL;
+        return Occupancies[side].Bits[index];
+    }
 }
 
 /*
@@ -2862,7 +2872,7 @@ extern "C"
 int main() {
 
     int debug = 0;
-    
+
     // if debugging
     if (debug)
     {
