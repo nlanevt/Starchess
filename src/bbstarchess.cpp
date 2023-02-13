@@ -1152,7 +1152,7 @@ inline Int343 GetPossibleCubeMoves(int block) {
 #define IsPromotion(side, block) ((side == white && (block < 49)) || (side == black && (block >= 294)))
 #define IsCapture(capture) (capture != NO_CAPTURE)
 
-inline int GetCapture(char id, char side, int attack_type, int target) {
+inline int GetCapture(char id, char side, int target) {
     for (int type = 0; type < 6; type++) {
         if (GetBit(globals[id].Bitboards[((!side)*6) + type], target)) {
             return type;
@@ -1980,7 +1980,7 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetValidTetraMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, T, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
             score = score_move(id, depth, side, T, capture, IsPromotion(side, target), source, target, key);
             globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, T, capture, IsPromotion(side, target)), score});
@@ -1992,7 +1992,7 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetValidDodecaMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, D, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
             score = score_move(id, depth, side, D, capture, 0, source, target, key);
             globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), score});
@@ -2005,7 +2005,7 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
         moves = GetOctaMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, O, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
             score = score_move(id, depth, side, O, capture, 0, source, target, key);
             globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), score});
@@ -2018,7 +2018,7 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
         moves = GetCubeMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, C, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
             score = score_move(id, depth, side, C, capture, 0, source, target, key);
             globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), score});
@@ -2031,7 +2031,7 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
         moves = GetOctaMoves(id, source) | GetCubeMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, I, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
             score = score_move(id, depth, side, I, capture, 0, source, target, key);
             globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), score});
@@ -2042,7 +2042,7 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
     source = BitScan(side, globals[id].Bitboards[(side * 6) + S]);
     moves = GetValidSphereMoves(id, side, source);
     while ((target = ForwardScanPop(&moves)) >= 0) {
-        capture = GetCapture(id, side, S, target);
+        capture = GetCapture(id, side, target);
         key = GetTTKey(prev_key, side, (side * 6) + S, capture, source, target);
         score = score_move(id, depth, side, S, capture, 0, source, target, key);
         globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, S, capture, 0), score});
@@ -2061,7 +2061,7 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetValidTetraMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, T, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
             order_value = GetOrderValue(order_type, key);
             globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, T, capture, IsPromotion(side, target)), order_value});
@@ -2073,7 +2073,7 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetValidDodecaMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, D, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
             order_value = GetOrderValue(order_type, key);
             globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), order_value});
@@ -2086,7 +2086,7 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
         moves = GetOctaMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, O, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
             order_value = GetOrderValue(order_type, key);
             globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), order_value});
@@ -2099,7 +2099,7 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
         moves = GetCubeMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, C, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
             order_value = GetOrderValue(order_type, key);
             globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), order_value});
@@ -2112,7 +2112,7 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
         moves = GetOctaMoves(id, source) | GetCubeMoves(id, source);
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, I, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
             order_value = GetOrderValue(order_type, key);
             globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), order_value});
@@ -2123,7 +2123,7 @@ static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_ke
     source = BitScan(side, globals[id].Bitboards[(side * 6) + S]);
     moves = GetValidSphereMoves(id, side, source);
     while ((target = ForwardScanPop(&moves)) >= 0) {
-        capture = GetCapture(id, side, S, target);
+        capture = GetCapture(id, side, target);
         key = GetTTKey(prev_key, side, (side * 6) + S, capture, source, target);
         order_value = GetOrderValue(order_type, key);
         globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, S, capture, 0), order_value});
@@ -2141,7 +2141,7 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetValidTetraMoves(id, side, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, T, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
             score = score_quiescence(side, T, capture);
             globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, T, capture, IsPromotion(side, target)), score});
@@ -2153,7 +2153,7 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetValidDodecaMoves(id, side, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, D, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
             score = score_quiescence(side, D, capture);
             globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), score});
@@ -2165,7 +2165,7 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetOctaMoves(id, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, O, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
             score = score_quiescence(side, O, capture);
             globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), score});
@@ -2177,7 +2177,7 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetCubeMoves(id, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, C, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
             score = score_quiescence(side, C, capture);
             globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), score});
@@ -2189,7 +2189,7 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = (GetOctaMoves(id, source) | GetCubeMoves(id, source)) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, I, target);
+            capture = GetCapture(id, side, target);
             key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
             score = score_quiescence(side, I, capture);
             globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), score});
@@ -2200,7 +2200,7 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
     source = BitScan(side, globals[id].Bitboards[(side * 6) + S]);
     moves = GetValidSphereMoves(id, side, source) & globals[id].Occupancies[!side];
     while ((target = ForwardScanPop(&moves)) >= 0) {
-        capture = GetCapture(id, side, S, target);
+        capture = GetCapture(id, side, target);
         key = GetTTKey(prev_key, side, (side * 6) + S, capture, source, target);
         score = score_quiescence(side, S, capture);
         globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, S, capture, 0), score});
@@ -2792,6 +2792,15 @@ void SelfPlay() {
     }
 }
 
+/*
+** Helper method for the C# Dll Methods
+** The global[id] value is set so that methods can be called smoothly
+*/
+void SetGlobalBitBoards() {
+    for (int i = 0; i < 12; i++) globals[0].Bitboards[i] = Bitboards[i];
+    for (int i = 0; i < 3; i++) globals[0].Occupancies[i] = Occupancies[i];
+}
+
 #define DllExport __attribute__(( visibility("default")))
 extern "C"
 {
@@ -2830,6 +2839,17 @@ extern "C"
     DllExport U64 GetOccupancies(int side, int index) {
         if (side >= 3 || index >= 6) return 0ULL;
         return Occupancies[side].Bits[index];
+    }
+
+    DllExport int GetBBCapture(int side, int target) {
+        SetGlobalBitBoards();
+        return GetCapture(0, side, target);
+    }
+
+    DllExport bool IsInBBCheck(int side) {
+        SetGlobalBitBoards();
+        int sphere_source = (side == white) ? BitScan(side, globals[0].Bitboards[S]) : BitScan(side, globals[0].Bitboards[s]);
+        return IsInCheck(0, side, S, sphere_source, 0);
     }
 }
 
