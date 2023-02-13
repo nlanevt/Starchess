@@ -2792,6 +2792,8 @@ void SelfPlay() {
     }
 }
 
+Int343 BBValue; //Helper variable for transfering bits from here to Unity engine.
+
 /*
 ** Helper method for the C# Dll Methods
 ** The global[id] value is set so that methods can be called smoothly
@@ -2800,6 +2802,7 @@ void SetGlobalBitBoards() {
     for (int i = 0; i < 12; i++) globals[0].Bitboards[i] = Bitboards[i];
     for (int i = 0; i < 3; i++) globals[0].Occupancies[i] = Occupancies[i];
 }
+
 
 #define DllExport __attribute__(( visibility("default")))
 extern "C"
@@ -2818,8 +2821,8 @@ extern "C"
         SwitchTurnValues({key, encode_move(source, target, type, capture, 0), 0});
     }
 
-    DllExport long Search(int depth, int side) {
-        SearchResult search_result = SearchRoot(depth, side);
+    DllExport long Search(int side) {
+        SearchResult search_result = SearchRoot(DEPTH, side);
         if (search_result.flag == CHECKMATE) return CHECKMATE;
         else if (search_result.flag == STALEMATE) return STALEMATE;
         else if (search_result.flag == DRAW_GAME) return DRAW_GAME;
@@ -2850,6 +2853,38 @@ extern "C"
         SetGlobalBitBoards();
         int sphere_source = (side == white) ? BitScan(side, globals[0].Bitboards[S]) : BitScan(side, globals[0].Bitboards[s]);
         return IsInCheck(0, side, S, sphere_source, 0);
+    }
+
+    DllExport int CountLegalMoves(int side, int type) {
+        return 0;
+    }
+
+    //Sets the possible moves to BBValue
+    DllExport void SetPossibleMoves(int type, int side, int block) {
+        if (type == T)
+            BBValue = GetPossibleTetraMoves(side, block);
+        else if (type == D)
+            BBValue = GetPossibleDodecaMoves(block);
+        else if (type == O)
+            BBValue = GetPossibleOctaMoves(block);
+        else if (type == C)
+            BBValue = GetPossibleCubeMoves(block);
+        else if (type == I)
+            BBValue = GetPossibleOctaMoves(block) | GetPossibleCubeMoves(block);
+        else if (type == S)
+            BBValue = GetPossibleSphereMoves(block);
+        else 
+            BBValue = GetPossibleTetraMoves(side, block);
+    }
+
+    //Sets the legal moves to BBValue
+    DllExport void SetLegalMoves(int type, int side, int block) {
+        SetGlobalBitBoards();
+    }
+
+    //Used for grabbing the info in BBValue
+    DllExport U64 GetBBValue(int index) {
+        return BBValue.Bits[index];
     }
 }
 
