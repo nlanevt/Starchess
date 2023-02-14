@@ -2792,6 +2792,14 @@ void SelfPlay() {
     }
 }
 
+/**********************************\
+ ==================================
+ 
+        Unity Library
+ 
+ ==================================
+\**********************************/
+
 Int343 BBValue; //Helper variable for transfering bits from here to Unity engine.
 
 /*
@@ -2803,6 +2811,54 @@ void SetGlobalBitBoards() {
     for (int i = 0; i < 3; i++) globals[0].Occupancies[i] = Occupancies[i];
 }
 
+bool is_sphere_in_check(char side) {
+    int sphere_source = (side == white) ? BitScan(side, globals[0].Bitboards[S]) : BitScan(side, globals[0].Bitboards[s]);
+    return IsInCheck(0, side, S, sphere_source, 0);
+}
+
+bool is_legal_move(int side, int type, int source, int target) {
+    int capture = GetCapture(0, side, target);
+    MakeKnownMove(0, side, type, capture, 0, source, target);
+    bool is_legal = !is_sphere_in_check(side);
+    ReverseMove(0, side, type, capture, 0, source, target);
+    return is_legal;
+}
+
+Int343 get_legal_moves(int type, int side, int block) {
+    Int343 attacks;
+
+    if (type == T)
+        attacks = GetValidTetraMoves(0, side, block);
+    else if (type == D)
+        attacks = GetValidDodecaMoves(0, side, block);
+    else if (type == O) {
+        attacks = GetOctaMoves(0, block);
+        attacks ^= (attacks & globals[0].Occupancies[side]);
+    }
+    else if (type == C) {
+        attacks = GetCubeMoves(0, block);
+        attacks ^= (attacks & globals[0].Occupancies[side]);
+    }
+    else if (type == I) {
+        attacks = GetOctaMoves(0, block) | GetCubeMoves(0, block);
+        attacks ^= (attacks & globals[0].Occupancies[side]);
+    }
+    else if (type == S)
+        attacks = GetValidSphereMoves(0, side, block);
+    else 
+        attacks = GetValidTetraMoves(0, side, block);
+
+    Int343 legal_moves = attacks;
+
+    int target;
+    while((target = ForwardScanPop(&attacks)) >= 0) {
+        if (!is_legal_move(side, type, block, target)) {
+            PopBit(legal_moves, target);
+        }
+    }
+
+    return legal_moves;
+}
 
 #define DllExport __attribute__(( visibility("default")))
 extern "C"
@@ -2849,14 +2905,26 @@ extern "C"
         return GetCapture(0, side, target);
     }
 
-    DllExport bool IsInBBCheck(int side) {
+    DllExport bool IsSphereInCheck(int side) {
         SetGlobalBitBoards();
-        int sphere_source = (side == white) ? BitScan(side, globals[0].Bitboards[S]) : BitScan(side, globals[0].Bitboards[s]);
-        return IsInCheck(0, side, S, sphere_source, 0);
+        return is_sphere_in_check(side);
     }
 
-    DllExport int CountLegalMoves(int side, int type) {
-        return 0;
+    //Gets all possible legal moves
+    DllExport int CountLegalMoves(int side) {
+        SetGlobalBitBoards();
+
+        Int343 piece_set; Int343 moves;
+        int source; int total = 0;
+
+        for (int type = T; type <= S; type++) {
+            piece_set = globals[0].Bitboards[(side * 6) + type];
+            while((source = ForwardScanPop(&piece_set)) >= 0) {
+                total += Count(get_legal_moves(type, side, source));
+            }
+        }
+
+        return total;
     }
 
     //Sets the possible moves to BBValue
@@ -2877,9 +2945,10 @@ extern "C"
             BBValue = GetPossibleTetraMoves(side, block);
     }
 
-    //Sets the legal moves to BBValue
+    // Sets the legal moves to BBValue
     DllExport void SetLegalMoves(int type, int side, int block) {
         SetGlobalBitBoards();
+        BBValue = get_legal_moves(type, side, block);
     }
 
     //Used for grabbing the info in BBValue
