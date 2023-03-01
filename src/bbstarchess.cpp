@@ -417,8 +417,8 @@ Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
-const int DEPTH = 8;
-const int QDEPTH = 7; 
+const int DEPTH = 10;
+const int QDEPTH = 10; 
 
 /**********************************\
  ==================================
@@ -1523,9 +1523,9 @@ const int position_scores[6][343] =
 
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
-     0,   0,  50,   0,  50,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
-     0,   0,  50,   0,  50,   0,   0,
+     0,   0,   0,   0,   0,   0,   0,
+     0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0
 }, { // Sphere position scores
@@ -1680,7 +1680,7 @@ inline int Evaluation(char id, char side, bool in_check) {
     bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; }
 
     bitboard = globals[id].Bitboards[I]; count = Count(bitboard); if (count < 4) score -= 100 * (4 - count); //Deduct for if Icosas are less than 4
-    while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; score += position_scores[I][block]; }
+    //while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; score += position_scores[I][block]; }
 
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
 
@@ -1694,7 +1694,7 @@ inline int Evaluation(char id, char side, bool in_check) {
     bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; }
 
     bitboard = globals[id].Bitboards[i]; count = Count(bitboard); if (count < 4) score += 100 * (4 - count);
-    while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; score -= position_scores[I][mirror_score[block]]; }
+    //while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; score -= position_scores[I][mirror_score[block]]; }
 
     bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; }
 
@@ -2218,6 +2218,7 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
 const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
 const int futility_margin[5] = {0, 100, 320, 500, 975};
+//const long long TIME_LIMIT = 15000000; //15 seconds
 const long long TIME_LIMIT = 15000000; //15 seconds
 
 long NODES_SEARCHED = 0; //GLOBAL
@@ -2304,7 +2305,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
 
             //Move Count and Futility Pruning
             if (promotion == 0) {
-                if (legal_moves > 6) continue;
+                if (legal_moves > 10) continue;
                 if (score + material_score[capture] <= alpha) continue;
             }
 
@@ -2995,7 +2996,7 @@ extern "C"
 */
 int main() {
 
-    int debug = 0;
+    int debug = 1;
 
     // if debugging
     if (debug)
