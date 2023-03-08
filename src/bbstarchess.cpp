@@ -417,8 +417,8 @@ Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
-const int DEPTH = 10;
-const int QDEPTH = 10; 
+const int DEPTH = 8;
+const int QDEPTH = 12; 
 
 /**********************************\
  ==================================
@@ -1727,7 +1727,7 @@ static inline int score_move(char id, int ply_depth, char side, char type, char 
 
 static inline int score_quiescence(char side, char type, char capture) {
     if (IsCapture(capture)) {
-        return mvv_lva[type][capture];
+        return mvv_lva[type][capture];            
     }
 
     return 0;
@@ -2143,9 +2143,11 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
         moves = GetValidDodecaMoves(id, side, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
-            score = score_quiescence(side, D, capture);
-            globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), score});
+            if (D <= capture) {
+                key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
+                score = score_quiescence(side, D, capture);
+                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), score});
+            }
         }
     }
 
@@ -2155,9 +2157,11 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
         moves = GetOctaMoves(id, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
-            score = score_quiescence(side, O, capture);
-            globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), score});
+            if (O <= capture) {
+                key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
+                score = score_quiescence(side, O, capture);
+                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), score});
+            }
         }
     }
 
@@ -2167,9 +2171,11 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
         moves = GetCubeMoves(id, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
-            score = score_quiescence(side, C, capture);
-            globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), score});
+            if (C <= capture) {
+                key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
+                score = score_quiescence(side, C, capture);
+                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), score});
+            }
         }
     }
 
@@ -2179,9 +2185,11 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
         moves = (GetOctaMoves(id, source) | GetCubeMoves(id, source)) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
-            score = score_quiescence(side, I, capture);
-            globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), score});
+            if (capture != T) {
+                key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
+                score = score_quiescence(side, I, capture);
+                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), score});
+            }
         }
     }
 
@@ -2241,6 +2249,7 @@ inline bool TimedOut(char id, int * depth) {
         return true;
     }
 
+    //Time Crunching
     if (time_passed > 10000000) {
         depth--;
     }
@@ -2358,8 +2367,9 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
     bool improving = (static_eval - pp_eval) > 0;
+    bool pvNode = beta - alpha > 1;
 
-    if (!in_check) {
+    if (!in_check && !pvNode) {
         //Razoring
         if (ply_depth <= 3 &&
             static_eval < alpha - 623 * ply_depth * ply_depth) { //Use 600 instead
@@ -2409,7 +2419,8 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         tt_entry = GetTTEntry(move.key);
         if (tt_entry->key == move.key &&
             tt_entry->turn == TURN &&
-            tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
+            tt_entry->depth >= ply_depth && 
+            pvNode) { //If the move chain already exists, then get that score
             score = tt_entry->score;
         }
         else {
@@ -2446,6 +2457,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             }
             else { //Late Move Reduction (LMR)
                 if (!in_check &&
+                    !pvNode && 
                     legal_moves >= FullDepthMoves &&
                     ply_depth >= ReductionLimit &&
                     !IsCapture(capture) &&
