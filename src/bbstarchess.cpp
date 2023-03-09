@@ -335,8 +335,7 @@ public:
         result.Bits[3] = ~Bits[3];
         result.Bits[4] = ~Bits[4];
         result.Bits[5] = ~Bits[5];
-        result.Bits[0] <<= 41;
-        result.Bits[0] >>= 41;
+        result.Bits[0] &= 0x7FFFFF;
         return result;
     }
 
@@ -417,8 +416,8 @@ Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
-const int DEPTH = 8;
-const int QDEPTH = 12; 
+const int DEPTH = 9; //8
+const int QDEPTH = 12; //12
 
 /**********************************\
  ==================================
@@ -1712,16 +1711,19 @@ static inline int score_move(char id, int ply_depth, char side, char type, char 
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
         return 9000; //Made up number for promotion relative to the mvv_lva lookup table;
     }
-    else if (globals[id].killer_moves[0][ply_depth-1].encoding == (encode_move(source, target, type, capture, promotion))) {
-        return 8000;
-    }
-    else if (globals[id].killer_moves[1][ply_depth-1].encoding == (encode_move(source, target, type, capture, promotion))) {
-        return 7000;
-    }
     else {
-        return ((side == white) ? position_scores[type][target] : position_scores[type][mirror_score[target]]);
+        int move = encode_move(source, target, type, capture, promotion);
+        if (globals[id].killer_moves[0][ply_depth-1].encoding == move) {
+            return 8000;
+        }
+        else if (globals[id].killer_moves[1][ply_depth-1].encoding == move) {
+            return 7000;
+        }
+        else {
+            return ((side == white) ? position_scores[type][target] : position_scores[type][mirror_score[target]]);
+        } 
     }
-
+    
     return 0;
 }
 
@@ -2526,7 +2528,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
 
     //Generates and orders moves in different ways: ordered, two random orders, and key ordered
     if ((id % 4) == 0)
-        GenerateMoves(id, ply_depth, side, start_key);
+        GenerateMoves(id, ply_depth, side, start_key); 
     else if ((id % 4) == 1)
         GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);
     else if ((id % 4) == 2)
@@ -2558,7 +2560,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
 
         legal_moves++;
 
-        //printf("\n|Move=%d|Score=%d|Alpha=%d|Type=%d|Source=%d|Target=%d|MoveScore=%d|", i, score, alpha, ascii_pieces[move.type], move.source, move.target, move.score);
+        //printf("\n|Move=%d|Score=%d|Alpha=%d|Type=%d|Source=%d|Target=%d|MoveScore=%d|", i, score, alpha, ascii_pieces[type], source, target, move.score);
 
         if (score > alpha) {
             alpha = score;
