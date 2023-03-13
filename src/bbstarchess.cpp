@@ -416,8 +416,8 @@ Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
-const int DEPTH = 9; //8
-const int QDEPTH = 12; //12
+const int DEPTH = 8; //8
+const int QDEPTH = 10; //12
 
 /**********************************\
  ==================================
@@ -1023,6 +1023,7 @@ struct SearchResult {
     Int343 Occupancies[3];
     long NODES_SEARCHED = 0;
     Move killer_moves[2][DEPTH];
+    int history_moves[12][343]; //history moves [piece][square]
     OrderedMoves ordered_moves[DEPTH];
     OrderedMoves quiescence_moves[QDEPTH];
     SearchResult search_result;
@@ -1239,7 +1240,8 @@ void ClearTranspositionTable() {
  
  ==================================
 \**********************************/
-const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
+//const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
+const int material_score[12] = { 100, 305, 350, 548, 994, 32767, -100, -305, -350, -548, -994, -32767};
 const int MATE_SCORE = 48000;
 const int MATE_VALUE = 49000;
 const int DRAW_VALUE = 0;
@@ -1720,7 +1722,8 @@ static inline int score_move(char id, int ply_depth, char side, char type, char 
             return 7000;
         }
         else {
-            return ((side == white) ? position_scores[type][target] : position_scores[type][mirror_score[target]]);
+            //return ((side == white) ? position_scores[type][target] : position_scores[type][mirror_score[target]]);
+            return globals[id].history_moves[(side * 6) + type][target];
         } 
     }
     
@@ -2417,16 +2420,17 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
         capture = get_move_capture(move.encoding);
-        
+        type = get_move_piece(move.encoding);
+        target = get_move_target(move.encoding);
+
         tt_entry = GetTTEntry(move.key);
         if (tt_entry->key == move.key &&
             tt_entry->turn == TURN &&
             tt_entry->depth >= ply_depth && 
-            pvNode) { //If the move chain already exists, then get that score
+            !pvNode) { //If the move chain already exists, then get that score
             score = tt_entry->score;
         }
         else {
-            type = get_move_piece(move.encoding);
             promotion = get_move_promotion(move.encoding);
 
             //Early Pruning
@@ -2443,7 +2447,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             }
 
             source = get_move_source(move.encoding);
-            target = get_move_target(move.encoding);
+            
 
             MakeKnownMove(id, side, type, capture, promotion, source, target);
 
@@ -2489,16 +2493,20 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         
         legal_moves++;
 
-        if (score >= beta) {
-            if (!IsCapture(capture)) {
-                globals[id].killer_moves[1][ply_depth-1] = globals[id].killer_moves[0][ply_depth-1];
-                globals[id].killer_moves[0][ply_depth-1] = move;
-            }
-            globals[id].ordered_moves[ply_depth-1].Clear();
-            return beta;
-        }
+        
 
         if (score > alpha) {
+            globals[id].history_moves[(side * 6) + type][target] += ply_depth;
+
+            if (score >= beta) {
+                if (!IsCapture(capture)) {
+                    globals[id].killer_moves[1][ply_depth-1] = globals[id].killer_moves[0][ply_depth-1];
+                    globals[id].killer_moves[0][ply_depth-1] = move;
+                }
+                globals[id].ordered_moves[ply_depth-1].Clear();
+                return beta;
+            }
+
             alpha = score;
         }
     }
@@ -2526,14 +2534,9 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
 
-    //Generates and orders moves in different ways: ordered, two random orders, and key ordered
-    if ((id % 4) == 0)
+    if (id == 0)
         GenerateMoves(id, ply_depth, side, start_key); 
-    else if ((id % 4) == 1)
-        GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);
-    else if ((id % 4) == 2)
-        GenerateMovesOther(id, ply_depth, side, start_key, KEY_ORDER);
-    else
+    else 
         GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);
 
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
@@ -2606,6 +2609,7 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
         for (int depth = 0; depth < QDEPTH; depth++) globals[id].quiescence_moves[depth].Clear();
         globals[id].NODES_SEARCHED = 0;
         memset(globals[id].killer_moves, 0, sizeof(globals[id].killer_moves));
+        memset(globals[id].history_moves, 0, sizeof(globals[id].history_moves));
         globals[id].search_result.Clear();
         globals[id].search_result.thread_id = id;
     }
