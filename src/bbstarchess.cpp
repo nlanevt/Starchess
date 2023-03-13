@@ -1028,7 +1028,7 @@ struct SearchResult {
     SearchResult search_result;
 };
 
-const size_t MAX_SEARCH_THREADS = 8;
+const size_t MAX_SEARCH_THREADS = 6;
 Global globals[MAX_SEARCH_THREADS]; //GLOBAL
 
 // encode move
@@ -1151,12 +1151,20 @@ inline Int343 GetPossibleCubeMoves(int block) {
 #define IsPromotion(side, block) ((side == white && (block < 49)) || (side == black && (block >= 294)))
 #define IsCapture(capture) (capture != NO_CAPTURE)
 
-inline int GetCapture(char id, char side, int target) {
-    for (int type = 0; type < 6; type++) {
-        if (GetBit(globals[id].Bitboards[((!side)*6) + type], target)) {
-            return type;
-        }
-    }
+static inline int GetCapture(char id, char side, int target) {
+    if (GetBit(globals[id].Bitboards[((!side)*6) + T], target))
+        return T;
+    else if (GetBit(globals[id].Bitboards[((!side)*6) + D], target))
+        return D;
+    else if (GetBit(globals[id].Bitboards[((!side)*6) + O], target))
+        return O;
+    else if (GetBit(globals[id].Bitboards[((!side)*6) + C], target))
+        return C;
+    else if (GetBit(globals[id].Bitboards[((!side)*6) + I], target))
+        return I;
+    else if (GetBit(globals[id].Bitboards[((!side)*6) + S], target))
+        return S;
+
     return NO_CAPTURE;
 }
 
@@ -1178,7 +1186,7 @@ struct TTEntry {
 };
 
 // hash table size
-#define HASH_SIZE 0x750000
+#define HASH_SIZE 0x750000 //0x750000
 TTEntry TransTable[HASH_SIZE][2];
 
 // init random hash keys
@@ -1225,7 +1233,6 @@ static inline TTEntry* GetTTEntry(U64 key) {
 
 //hash_key = prev_key ^ (piece_key + dst);
 void ClearTranspositionTable() {
-    //int trans_size = 343 * 343 * 6 * DEPTH; //Set everything in the trans table to 0.
     for (int i = 0; i < HASH_SIZE; i++) {
         TransTable[i][0] = {0, 0, 0, 0};
         TransTable[i][1] = {0, 0, 0, 0};
@@ -2621,7 +2628,7 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
     }
 
     for (int id = 0; id < MAX_SEARCH_THREADS; id++) {
-        printf("thread %d nodes searched: %ld\n", id, globals[id].NODES_SEARCHED);
+        //printf("thread %d nodes searched: %ld\n", id, globals[id].NODES_SEARCHED);
         NODES_SEARCHED += globals[id].NODES_SEARCHED;
         if (globals[id].search_result.flag != NO_MOVE) {
             best_result = globals[id].search_result;
@@ -2725,6 +2732,7 @@ void SelfPlay() {
     string response;
     long long search_time;
     char is_continuous = 0;
+    char log_only = 0;
 
     SearchResult search_result;
     Move move;
@@ -2736,21 +2744,25 @@ void SelfPlay() {
     init_bitboards((char *)START_POSITION);
     
     while (true) {
-        print_full_board();
+        if (!log_only) print_full_board();
+
         if (!is_continuous) {
             cout << ">> ";
             getline(cin, response);
         }
         
         if (!response.compare("exit")) break;
+        if (!response.compare("-l")) log_only = 1; //Makes only the log line show
         if (!response.compare("continuous")) is_continuous = 1; //Makes the game keep going without my input
+        if (!response.compare("continuous -l")) {is_continuous = 1; log_only = 1;}
+
         if (!response.compare("new")) {
             init_variables();
             init_bitboards((char *)START_POSITION);
             continue;
         }
 
-        printf(">> Generating Moves for %s...\n", (SIDE) ? "BLACK" : "WHITE" );
+        if (!log_only) printf(">> Generating Moves for %s...\n", (SIDE) ? "BLACK" : "WHITE" );
 
         search_result = SearchRoot(DEPTH, SIDE);
         move = search_result.move;
@@ -2783,13 +2795,13 @@ void SelfPlay() {
             is_continuous = 0;
         }
         else {
-            printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
+            if (!log_only) printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
             MakeMove(SIDE, type, source, target); //Make the move just searched, if not a checkmate/stalemate
         }
 
         //Print out testing/logging info
-        printf("[Turn=%d|Depth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n",
-                TURN, DEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
+        printf("[Turn=%d|Depth=%d|QDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n",
+                TURN, DEPTH, QDEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
                 search_result.score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (stop_game) ? " >> TIMEOUT" : "");
 
         //Switch sides and readjust key variables
