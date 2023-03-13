@@ -1028,7 +1028,7 @@ struct SearchResult {
     SearchResult search_result;
 };
 
-const size_t MAX_SEARCH_THREADS = 4;
+const size_t MAX_SEARCH_THREADS = 1;
 Global globals[MAX_SEARCH_THREADS]; //GLOBAL
 
 // encode move
@@ -1178,11 +1178,14 @@ static inline int GetCapture(char id, char side, int target) {
 
 U64 piece_keys[12][343]; //GLOBAL
 
+enum {TT_ALPHA, TT_BETA, TT_EXACT};
+
 struct TTEntry {
     U64 key;
     uint16_t turn;
     uint8_t depth;
     int score;
+    char flag;
 };
 
 // hash table size
@@ -1234,8 +1237,8 @@ static inline TTEntry* GetTTEntry(U64 key) {
 //hash_key = prev_key ^ (piece_key + dst);
 void ClearTranspositionTable() {
     for (int i = 0; i < HASH_SIZE; i++) {
-        TransTable[i][0] = {0, 0, 0, 0};
-        TransTable[i][1] = {0, 0, 0, 0};
+        TransTable[i][0] = {0, 0, 0, 0, 0};
+        TransTable[i][1] = {0, 0, 0, 0, 0};
     }
 }
 
@@ -1247,7 +1250,8 @@ void ClearTranspositionTable() {
  ==================================
 \**********************************/
 //const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
-const int material_score[12] = { 100, 305, 350, 548, 994, 32767, -100, -305, -350, -548, -994, -32767};
+//const int material_score[12] = { 100, 305, 350, 548, 994, 32767, -100, -305, -350, -548, -994, -32767};
+const int material_score[12] = { 100, 320, 325, 500, 1200, 32767, -100, -320, -325, -500, -1200, -32767};
 const int MATE_SCORE = 48000;
 const int MATE_VALUE = 49000;
 const int DRAW_VALUE = 0;
@@ -1710,7 +1714,8 @@ inline int Evaluation(char id, char side, bool in_check) {
 
 static inline int score_move(char id, int ply_depth, char side, char type, char capture, char promotion, int source, int target, U64 key) {
     TTEntry *tt_entry = GetTTEntry(key);
-    if (tt_entry->key == key && tt_entry->turn == TURN) { //Transposition Table pieces go first
+    if (tt_entry->key == key && tt_entry->turn == TURN && tt_entry->flag == TT_EXACT) { //Transposition Table pieces go first
+        //return (tt_entry->flag == TT_EXACT) ? 20000 : 10000;
         return 10000;
     }
     else if (IsCapture(capture)) {
@@ -1933,16 +1938,17 @@ inline bool is_block_attacked(char id, int block, char side) {
     check = dodeca_attacks[block] & ((side == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]);
     if (IsSet(check)) return true;
 
-    //attacked by octahedrons
-    check = GetOctaMoves(id, block) & ((side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
+    Int343 octa_moves = GetOctaMoves(id, block);
+    check = octa_moves & ((side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
     if (IsSet(check)) return true;
 
     //attacked by Cube
-    check = GetCubeMoves(id, block) & ((side == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]);
+    Int343 cube_moves = GetCubeMoves(id, block);
+    check = cube_moves & ((side == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]);
     if (IsSet(check)) return true;
 
     //attacked by Icosa
-    check = (GetCubeMoves(id, block) | GetOctaMoves(id, block)) & ((side == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]);
+    check = (cube_moves | octa_moves) & ((side == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]);
     if (IsSet(check)) return true;
 
     // attacked by Sphere
@@ -2341,6 +2347,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
                 tt_entry->turn = TURN;
                 tt_entry->depth = ply_depth;
                 tt_entry->score = score;
+                tt_entry->flag = (score > alpha & score < beta) ? TT_EXACT : TT_ALPHA; //Might not be necessary
             }
         }
 
@@ -2492,6 +2499,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 tt_entry->turn = TURN;
                 tt_entry->depth = ply_depth;
                 tt_entry->score = score;
+                tt_entry->flag = (score > alpha & score < beta) ? TT_EXACT : TT_ALPHA;
             }
         }
         
