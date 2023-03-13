@@ -646,7 +646,7 @@ char octa_directions[343][12];
 char cube_directions[343][6];
 Int343 octa_edge_masks[343];
 Int343 cube_edge_masks[343];
-Int343 tetra_isolation_masks[49];
+//Int343 tetra_isolation_masks[49];
 
 
 // Generate Tetra Attacks
@@ -945,11 +945,11 @@ void init_attacks() {
     }
 }
 
-void init_tetra_isolation_masks() {
+/*void init_tetra_isolation_masks() {
     for (int rf = 0; rf < 49; rf++) {
         tetra_isolation_masks[rf] = build_tetra_isolation_mask(rf);
     }
-}
+}*/
 
 void init_rays_directions_edges() {
     for (int block = 0; block < 343; block++) {
@@ -1250,8 +1250,8 @@ void ClearTranspositionTable() {
  ==================================
 \**********************************/
 //const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
-//const int material_score[12] = { 100, 305, 350, 548, 994, 32767, -100, -305, -350, -548, -994, -32767};
-const int material_score[12] = { 100, 320, 325, 500, 1200, 32767, -100, -320, -325, -500, -1200, -32767};
+const int material_score[12] = { 100, 305, 350, 548, 994, 32767, -100, -305, -350, -548, -994, -32767};
+//const int material_score[12] = { 100, 320, 325, 500, 1000, 32767, -100, -320, -325, -500, -1000, -32767};
 const int MATE_SCORE = 48000;
 const int MATE_VALUE = 49000;
 const int DRAW_VALUE = 0;
@@ -1684,28 +1684,28 @@ inline int Evaluation(char id, char side, bool in_check) {
     //Add white scores
     bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {
         score += material_score[T]; score += position_scores[T][block];
-        score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0; //Deduct for isolated pawns
+        //score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0; //Deduct for isolated pawns
     }
     bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block]; }
     bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; }
     bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; }
 
-    bitboard = globals[id].Bitboards[I]; count = Count(bitboard); if (count < 4) score -= 100 * (4 - count); //Deduct for if Icosas are less than 4
-    //while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; score += position_scores[I][block]; }
+    //bitboard = globals[id].Bitboards[I]; count = Count(bitboard); if (count < 4) score -= 100 * (4 - count); //Deduct for if Icosas are less than 4
+    while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; /*score += position_scores[I][block];*/ }
 
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
 
     //Subtract black scores (material_score contains negative values)
     bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) {
         score += material_score[t]; score -= position_scores[T][mirror_score[block]];
-        score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
+        //score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
     }
     bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; }
 
-    bitboard = globals[id].Bitboards[i]; count = Count(bitboard); if (count < 4) score += 100 * (4 - count);
-    //while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; score -= position_scores[I][mirror_score[block]]; }
+    //bitboard = globals[id].Bitboards[i]; count = Count(bitboard); if (count < 4) score += 100 * (4 - count);
+    while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; /*score -= position_scores[I][mirror_score[block]]; */}
 
     bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; }
 
@@ -2663,7 +2663,7 @@ void init_variables()
     //Static variables
     init_attacks();
     init_rays_directions_edges();
-    init_tetra_isolation_masks();
+    //init_tetra_isolation_masks();
     init_random_keys();
 
     //New Game Variables
