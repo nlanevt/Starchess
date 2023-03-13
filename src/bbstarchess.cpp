@@ -246,8 +246,7 @@ public:
                 result.Bits[i] = 0ULL;
             start++;
         }
-        result.Bits[0] <<= 41;
-        result.Bits[0] >>= 41;
+        result.Bits[0] &= 0x7FFFFF;
         return result;
     }
 
@@ -417,7 +416,7 @@ char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
 const int DEPTH = 8; //8
-const int QDEPTH = 10; //12
+const int QDEPTH = 12; //12
 
 /**********************************\
  ==================================
@@ -2456,8 +2455,6 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 continue;
             }
 
-            //Add move here: globals[id].ordered_moves[ply_depth-1].move = move;
-
             if (legal_moves == 0) {//Do normal search on the first one
                 score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, p_eval, static_eval, -beta, -alpha);
             }
@@ -2492,8 +2489,6 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         }
         
         legal_moves++;
-
-        
 
         if (score > alpha) {
             globals[id].history_moves[(side * 6) + type][target] += ply_depth;
