@@ -2983,8 +2983,9 @@ extern "C"
 * Y Implement Late Move Reduction - Fully implement once evaluations complete
 * Y Implement Null Move
 * Y PVS Searching
-* N PV Node Check
+* Y PV Node Check
 * N PV Move Ordering
+* Y History Heuristic
 * Y Killer Moves
 * Y Razoring
 * Y Futility Pruning
@@ -2997,10 +2998,10 @@ extern "C"
 * ? Fully Implement Evaluation
 * N Add Mobility Scoring to Evaluation
 * Y Add Check Scoring to Evaluation
-* ? Add Pawn Upgrade
+* X Add Pawn Upgrade
 * X Fix / Fully Test Transposition Table
-* X Implement Search Timeout
-* - Implement multi-thread searching during player's turn
+* Y Implement Search Timeout
+* X Implement multi-thread searching during player's turn
 * X Transfer code to Unity
 */
 int main() {
