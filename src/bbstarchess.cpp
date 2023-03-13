@@ -2497,21 +2497,17 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         
         legal_moves++;
 
-        
+        if (score >= beta) {
+            if (!IsCapture(capture)) {
+                globals[id].killer_moves[1][ply_depth-1] = globals[id].killer_moves[0][ply_depth-1];
+                globals[id].killer_moves[0][ply_depth-1] = move;
+                globals[id].history_moves[(side * 6) + type][target] += ply_depth * ply_depth;
+            }
+            globals[id].ordered_moves[ply_depth-1].Clear();
+            return beta;
+        }
 
         if (score > alpha) {
-            if (!IsCapture(capture))
-                globals[id].history_moves[(side * 6) + type][target] += ply_depth;
-
-            if (score >= beta) {
-                if (!IsCapture(capture)) {
-                    globals[id].killer_moves[1][ply_depth-1] = globals[id].killer_moves[0][ply_depth-1];
-                    globals[id].killer_moves[0][ply_depth-1] = move;
-                }
-                globals[id].ordered_moves[ply_depth-1].Clear();
-                return beta;
-            }
-
             alpha = score;
         }
     }
