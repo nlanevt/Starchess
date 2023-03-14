@@ -416,7 +416,7 @@ char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
 const int DEPTH = 8; //8
-const int QDEPTH = 12; //12
+const int QDEPTH = 10; //12
 
 /**********************************\
  ==================================
@@ -1028,8 +1028,8 @@ struct SearchResult {
     SearchResult search_result;
 };
 
-const size_t MAX_SEARCH_THREADS = 4;
-Global globals[MAX_SEARCH_THREADS]; //GLOBAL
+const size_t MAX_THREADS = 4;
+Global globals[MAX_THREADS]; //GLOBAL
 
 // encode move
 #define encode_move(source, target, piece, capture, promotion) \
@@ -1189,7 +1189,7 @@ struct TTEntry {
 };
 
 // hash table size
-#define HASH_SIZE 0x750000 //0x750000
+#define HASH_SIZE 0x800000 //0x750000
 TTEntry TransTable[HASH_SIZE][2];
 
 // init random hash keys
@@ -1250,8 +1250,8 @@ void ClearTranspositionTable() {
  ==================================
 \**********************************/
 //const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
-const int material_score[12] = { 100, 305, 350, 548, 994, 32767, -100, -305, -350, -548, -994, -32767};
-//const int material_score[12] = { 100, 320, 325, 500, 1000, 32767, -100, -320, -325, -500, -1000, -32767};
+//const int material_score[12] = { 100, 305, 350, 548, 994, 32767, -100, -305, -350, -548, -994, -32767};
+const int material_score[12] = { 100, 320, 325, 500, 1000, 32767, -100, -320, -325, -500, -1000, -32767};
 const int MATE_SCORE = 48000;
 const int MATE_VALUE = 49000;
 const int DRAW_VALUE = 0;
@@ -1684,15 +1684,12 @@ inline int Evaluation(char id, char side, bool in_check) {
     //Add white scores
     bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {
         score += material_score[T]; score += position_scores[T][block];
-        //score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0; //Deduct for isolated pawns
+        /*score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0; */
     }
     bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block]; }
     bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; }
     bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; }
-
-    //bitboard = globals[id].Bitboards[I]; count = Count(bitboard); if (count < 4) score -= 100 * (4 - count); //Deduct for if Icosas are less than 4
-    while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[I]; /*score += position_scores[I][block];*/ }
-
+    score += (Count(globals[id].Bitboards[I]) * material_score[I]); //Add the White Icosa material scores
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
 
     //Subtract black scores (material_score contains negative values)
@@ -1703,10 +1700,7 @@ inline int Evaluation(char id, char side, bool in_check) {
     bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; }
-
-    //bitboard = globals[id].Bitboards[i]; count = Count(bitboard); if (count < 4) score += 100 * (4 - count);
-    while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[i]; /*score -= position_scores[I][mirror_score[block]]; */}
-
+    score += (Count(globals[id].Bitboards[i]) * material_score[i]); //Add the Black Icosa material scores
     bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; }
 
     return score;
@@ -1715,7 +1709,6 @@ inline int Evaluation(char id, char side, bool in_check) {
 static inline int score_move(char id, int ply_depth, char side, char type, char capture, char promotion, int source, int target, U64 key) {
     TTEntry *tt_entry = GetTTEntry(key);
     if (tt_entry->key == key && tt_entry->turn == TURN && tt_entry->flag == TT_EXACT) { //Transposition Table pieces go first
-        //return (tt_entry->flag == TT_EXACT) ? 20000 : 10000;
         return 10000;
     }
     else if (IsCapture(capture)) {
@@ -1733,7 +1726,6 @@ static inline int score_move(char id, int ply_depth, char side, char type, char 
             return 7000;
         }
         else {
-            //return ((side == white) ? position_scores[type][target] : position_scores[type][mirror_score[target]]);
             return globals[id].history_moves[(side * 6) + type][target];
         } 
     }
@@ -2231,7 +2223,8 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
 
 const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
-const int futility_margin[5] = {0, 100, 320, 500, 975};
+const int futility_margin[5] = {0, 100, 320, 500, 10000};
+//const int futility_margin[5] = {0, 100, 305, 548, 994}
 const long long TIME_LIMIT = 15000000; //15 seconds
 
 long NODES_SEARCHED = 0; //GLOBAL
@@ -2322,7 +2315,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
 
             //Move Count and Futility Pruning
             if (promotion == 0) {
-                if (legal_moves > 8) continue; //if (legal_moves > 10) continue;
+                if (legal_moves > 6) continue;  // legal_moves > 6
                 if (score + material_score[capture] <= alpha) continue;
             }
 
@@ -2389,16 +2382,16 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
 
     if (!in_check && !pvNode) {
         //Razoring
-        if (ply_depth <= 3 &&
-            static_eval < alpha - 623 * ply_depth * ply_depth) { //Use 600 instead
+        if (/*ply_depth <= 3 &&*/
+            static_eval < alpha - 426 - 252  * ply_depth * ply_depth) { //Use 600 instead
             score = Quiescence(id, QDEPTH, side, prev_key, alpha - 1, alpha);
             if (score < alpha)
                 return score;
         }
 
         //Futility Pruning
-        if (ply_depth <= 3 &&
-            static_eval - (165 * (ply_depth - improving)) >= beta &&
+        if (ply_depth <= 4 &&
+            static_eval - (165 * (ply_depth - improving)) - (p_eval / 280) >= beta &&
             static_eval < 48000) {
             return static_eval;
         }
@@ -2415,12 +2408,12 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         }
 
         //Probability Cut
-        if (ply_depth > 3 && (IsCapture(get_move_capture(p_move)) || get_move_promotion(p_move) != 0)) {
+        /*if (ply_depth > 3 && (IsCapture(get_move_capture(p_move)) || get_move_promotion(p_move) != 0)) {
             int bound = beta + 191 - 54 * improving;
             score = Search(id, ply_depth - 3, side, prev_key, true, p_move, pp_eval, p_eval, -bound, -bound+1);
             if (score >= bound)
                 return score;
-        }
+        }*/
     }
 
     GenerateMoves(id, ply_depth, side, prev_key);
@@ -2452,7 +2445,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 if (!IsCapture(capture) && legal_moves >= futility_move_count && type != T) continue;
 
                 //Futility Pruning
-                if (ply_depth <= 4 && legal_moves > 0) {
+                if (ply_depth <= 5 && legal_moves > 0) {
                     if (!IsCapture(capture) && static_eval + futility_margin[ply_depth] <= alpha) continue; //Quiet Moves
                     if (IsCapture(capture) && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
                     //if (IsCapture(capture) && (static_eval + 180 + 201 * ply_depth + material_score[capture]) <= alpha) continue; //Captures
@@ -2605,10 +2598,10 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
 
     SearchResult best_result;
     vector<thread> threads;
-    threads.reserve(MAX_SEARCH_THREADS);
+    threads.reserve(MAX_THREADS);
 
     //Reset global values
-    for (int id = 0; id < MAX_SEARCH_THREADS; id++) {
+    for (int id = 0; id < MAX_THREADS; id++) {
         for (int i = 0; i < 12; i++) globals[id].Bitboards[i] = Bitboards[i];
         for (int i = 0; i < 3; i++) globals[id].Occupancies[i] = Occupancies[i];
         for (int depth = 0; depth < DEPTH; depth++) globals[id].ordered_moves[depth].Clear();
@@ -2621,17 +2614,17 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
     }
 
     //Generate Threads
-    for (int id = 0; id < MAX_SEARCH_THREADS; id++) {
+    for (int id = 0; id < MAX_THREADS; id++) {
         threads.emplace_back([id, ply_depth, side]{
             SearchRootHelper(id, ply_depth, side);
         });
     }
 
-    for (int id = 0; id < MAX_SEARCH_THREADS; id++) {
+    for (int id = 0; id < MAX_THREADS; id++) {
         threads[id].join();
     }
 
-    for (int id = 0; id < MAX_SEARCH_THREADS; id++) {
+    for (int id = 0; id < MAX_THREADS; id++) {
         //printf("thread %d nodes searched: %ld\n", id, globals[id].NODES_SEARCHED);
         NODES_SEARCHED += globals[id].NODES_SEARCHED;
         if (globals[id].search_result.flag != NO_MOVE) {
@@ -2716,7 +2709,8 @@ void PrintTitle() {
             "\t   STARCHESS\n\n" <<
             "==================================\n" <<
             "**********************************\n";
-    cout << "Threaded Version\n";
+    cout << "Depth = " << DEPTH << " | QDepth = " << QDEPTH << "\n";
+    cout << "Thread Count = " << MAX_THREADS << "\n";
     cout << "Timeout = " << GetTimeStampString(TIME_LIMIT) << "\n";
 }
 
@@ -3005,6 +2999,8 @@ extern "C"
 * Y Mate Distance Pruning
 * Y Mate Count Pruning
 * Y Implement Quisesence + Delta Search
+* N Probability Cut
+* N Isolated Pawn Evaluation
 * X Add Code to handle being in_check
 * ? Fully Implement Evaluation
 * N Add Mobility Scoring to Evaluation
@@ -3017,7 +3013,7 @@ extern "C"
 */
 int main() {
 
-    int debug = 1;
+    int debug = 0;
 
     // if debugging
     if (debug)
