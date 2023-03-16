@@ -1028,7 +1028,7 @@ struct SearchResult {
     SearchResult search_result;
 };
 
-const size_t MAX_THREADS = 4;
+const size_t MAX_THREADS = 6;
 Global globals[MAX_THREADS]; //GLOBAL
 
 // encode move
@@ -2536,7 +2536,10 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
 
-    GenerateMoves(id, ply_depth, side, start_key); 
+    if (id < 3) //6 threads, so 3 are in order
+        GenerateMoves(id, ply_depth, side, start_key); 
+    else
+        GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);
 
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
@@ -3013,7 +3016,7 @@ extern "C"
 */
 int main() {
 
-    int debug = 0;
+    int debug = 1;
 
     // if debugging
     if (debug)
