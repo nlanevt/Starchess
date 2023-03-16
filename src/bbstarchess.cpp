@@ -79,7 +79,7 @@ char ascii_pieces[] = "TDOCIStdocis";
 // encode pieces
 enum { T, D, O, C, I, S, t, d, o, c, i, s };
 enum { white, black, both }; //Piece colors
-enum {NO_ORDER, KEY_ORDER, RANDOM_ORDER}; //Move generation ordering
+enum {NO_ORDER, RANDOM_ORDER}; //Move generation ordering
 enum {NO_MOVE, FOUND_MOVE};
 
 const char CHECKMATE = 100;
@@ -88,7 +88,7 @@ const char DRAW_GAME = 102;
 const char NO_CAPTURE = 6;
 const char NO_DIR = 19;
 
-const int MATE_SCORE = 48000;
+//const int MATE_SCORE = 48000;
 const int MATE_VALUE = 49000;
 const int DRAW_VALUE = 0;
 const int INF = 50000;
@@ -975,12 +975,10 @@ void init_rays_directions_edges() {
 const size_t MAX_MOVE_COUNT_SIZE = 400;
 
 struct Move {
-    U64 key;
     long encoding;
     int score;
 
     void Clear() {
-        key = 0;
         encoding = 0;
         score = 0;
     }
@@ -1009,13 +1007,13 @@ struct OrderedMoves {
 struct SearchResult {
     Move move;
     char thread_id;
-    int score;
+    int final_score;
     char flag;
 
     void Clear() {
         move.Clear();
         thread_id = 0;
-        score = 0;
+        final_score = 0;
         flag = NO_MOVE;
     }
 };
@@ -1024,43 +1022,48 @@ struct SearchResult {
     Int343 Bitboards[12];
     Int343 Occupancies[3];
     long NODES_SEARCHED = 0;
-    Move killer_moves[2][DEPTH];
+    long killer_moves[2][DEPTH];
     int history_moves[12][343]; //history moves [piece][square]
     OrderedMoves ordered_moves[DEPTH];
     OrderedMoves quiescence_moves[QDEPTH];
     SearchResult search_result;
 };
 
-const size_t MAX_THREADS = 1;
+const size_t MAX_THREADS = 1; //4
 Global globals[MAX_THREADS]; //GLOBAL
 
 // encode move
-#define encode_move(source, target, piece, capture, promotion) \
+#define encode_move(source, target, piece, capture, promotion, side) \
     (source) |          \
     (target << 9) |     \
     (piece << 18) |     \
     (capture << 21) |   \
-    (promotion << 24)   \
+    (promotion << 24) |  \
+    (side << 27)        \
     
-// extract source square
+// extract source block
 //00000000000000000000000111111111
 #define get_move_source(move) (move & 0x1FF)
 
-// extract target square
+// extract target block
 //00000000000000111111111000000000
 #define get_move_target(move) ((move & 0x3FE00) >> 9)
 
-// extract piece
+// extract piece bits
 //00000000000111000000000000000000
 #define get_move_piece(move) ((move & 0x1C0000) >> 18)
 
-// extract capture flag
+// extract capture bits
 //00000000111000000000000000000000
 #define get_move_capture(move) ((move & 0xE00000) >> 21)
 
 // extract promotion flag
 //00000111000000000000000000000000
 #define get_move_promotion(move) ((move & 0x7000000) >> 24)
+
+// extract side bit
+//00001000000000000000000000000000
+#define get_move_side(move) ((move & 0x8000000) >> 27)
 
 inline Int343 GetValidTetraMoves(char id, char side, int block) {
     Int343 result;
@@ -1181,14 +1184,11 @@ static inline int GetCapture(char id, char side, int target) {
 
 U64 piece_keys[12][343]; //GLOBAL
 
-enum {TT_ALPHA, TT_BETA, TT_EXACT};
-
 struct TTEntry {
     U64 key;
     uint16_t turn;
     uint8_t depth;
     int score;
-    char flag;
 };
 
 // hash table size
@@ -1240,19 +1240,18 @@ static inline TTEntry* GetTTEntry(U64 key) {
 //hash_key = prev_key ^ (piece_key + dst);
 void ClearTranspositionTable() {
     for (int i = 0; i < HASH_SIZE; i++) {
-        TransTable[i][0] = {0, 0, 0, 0, 0};
-        TransTable[i][1] = {0, 0, 0, 0, 0};
+        TransTable[i][0] = {0, 0, 0, 0};
+        TransTable[i][1] = {0, 0, 0, 0};
     }
 }
 
-static inline void WriteToHashTable(TTEntry * tt_entry, int ply_depth, U64 key, int score, int alpha, int beta) {
+static inline void WriteToHashTable(TTEntry * tt_entry, int ply_depth, U64 move_key, int score, int alpha, int beta) {
     //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
-    if (tt_entry->turn != TURN || (tt_entry->key == key && ply_depth > tt_entry->depth)) {
-        tt_entry->key = key;
+    if (tt_entry->turn != TURN || (tt_entry->key == move_key && ply_depth > tt_entry->depth)) {
+        tt_entry->key = move_key;
         tt_entry->turn = TURN;
         tt_entry->depth = ply_depth;
         tt_entry->score = score;
-        tt_entry->flag = (score > alpha && score < beta) ? TT_EXACT : TT_ALPHA;
     }
 }
 
@@ -1425,7 +1424,7 @@ const int position_scores[6][343] =
      0,   0,   0,  10,   0,   0,   0,
      0,   0,   0,  10,   0,   0,   0,
      0,  10,  10,   0,  10,  10,   0,
-    10,   0,   0,   0,   0,   0,  10,
+     10,   0,   0,   0,   0,   0,  10,
      0,  10,  10,   0,  10,  10,   0,
      0,   0,   0,  10,   0,   0,   0,
      0,   0,   0,  10,   0,   0,   0,
@@ -1716,28 +1715,19 @@ inline int Evaluation(char id, char side, bool in_check) {
     return score;
 }
 
-/*int TT_EXACT_HIT_COUNT = 0;
-int Q_TT_COUNT = 0;
-int Q_NODE_COUNT = 0;
-int TOTAL_TT_HC = 0;*/
-static inline int score_move(char id, int ply_depth, char side, char type, char capture, char promotion, int source, int target, U64 key) {
-    /*TTEntry *tt_entry = GetTTEntry(key); //Transposition Table pieces go first
-    if (tt_entry->key == key && tt_entry->turn == TURN && tt_entry->flag == TT_EXACT) { 
-        TT_EXACT_HIT_COUNT++;
-        return 10000;
-    }
-    else */if (IsCapture(capture)) {
+static inline int ScoreMove(char id, int ply_depth, char side, char type, char capture, char promotion, int source, int target) {
+    if (IsCapture(capture)) {
         return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
     }
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
         return 9000; //Made up number for promotion relative to the mvv_lva lookup table;
     }
     else {
-        int move = encode_move(source, target, type, capture, promotion);
-        if (globals[id].killer_moves[0][ply_depth-1].encoding == move) {
+        long move = encode_move(source, target, type, capture, promotion, side);
+        if (globals[id].killer_moves[0][ply_depth-1] == move) {
             return 8000;
         }
-        else if (globals[id].killer_moves[1][ply_depth-1].encoding == move) {
+        else if (globals[id].killer_moves[1][ply_depth-1] == move) {
             return 7000;
         }
         else {
@@ -1748,13 +1738,7 @@ static inline int score_move(char id, int ply_depth, char side, char type, char 
     return 0;
 }
 
-static inline int score_quiescence(char side, char type, char capture) {
-    if (IsCapture(capture)) {
-        return mvv_lva[type][capture];            
-    }
-
-    return 0;
-}
+#define ScoreCapture(type, capture) (IsCapture(capture) ? mvv_lva[type][capture] : 0);
 
 /**********************************\
  ==================================
@@ -1763,37 +1747,36 @@ static inline int score_quiescence(char side, char type, char capture) {
  
  ==================================
 \**********************************/
-
 const size_t MOVES_LIST_SIZE = 1000;
 const size_t EMPTY_MOVE_THRESHOLD = 100;
 OrderedMoves ordered_moves[DEPTH]; //GLOBAL
 OrderedMoves quiescence_moves[QDEPTH]; //GLOBAL
-Move moves_list[MOVES_LIST_SIZE]; //GLOBAL
+U64 moves_list[MOVES_LIST_SIZE]; //TODO: THere is likely an issue with how these are handled through Unity. On loaded games this information disappears
 
-static inline void AddToMoveList(Move new_move) {
+static inline void AddToMoveList(U64 move_key) {
     if (TURN < MOVES_LIST_SIZE) {
-        moves_list[TURN] = new_move;
+        moves_list[TURN] = move_key;
     }
     else {
         for (int i = 0; i < MOVES_LIST_SIZE - 1; i++) {
             moves_list[i] = moves_list[i+1];
         }
-        moves_list[MOVES_LIST_SIZE-1] = new_move;
+        moves_list[MOVES_LIST_SIZE-1] = move_key;
     }
 }
 
 static inline bool IsRepeated(U64 new_position) {
-    if (TURN > 4 && new_position == moves_list[TURN-4].key) {
+    if (TURN > 4 && new_position == moves_list[TURN-4]) {
         return true;
     }
     return false;
 }
 
-bool IsThreefoldRepetition(Move move) {
+bool IsThreefoldRepetition(U64 move_key) {
     //threefold repetition
     int repetition_counter = 0;
     for (int i = (TURN < MOVES_LIST_SIZE) ? TURN-2 : MOVES_LIST_SIZE-1; i >= 0; i--) {
-        if (move.key == moves_list[i].key) repetition_counter++;
+        if (move_key == moves_list[i]) repetition_counter++;
         if (repetition_counter >= 3) {
             return true;
         }
@@ -1803,15 +1786,15 @@ bool IsThreefoldRepetition(Move move) {
 }
 
 //Doesn't necessarily use 50 as the threshold
-bool IsEmptyMoveRule(Move move) {
+bool IsEmptyMoveRule(long move) {
     bool fifty_rule = false;
-    if (TURN >= EMPTY_MOVE_THRESHOLD && get_move_piece(move.encoding) != T && !IsCapture(get_move_capture(move.encoding))) {
+    if (TURN >= EMPTY_MOVE_THRESHOLD && get_move_piece(move) != T && !IsCapture(get_move_capture(move))) {
         fifty_rule = true;
         int cap = 0;
         char type, capture;
         for (int i = (TURN < MOVES_LIST_SIZE) ? TURN-2 : MOVES_LIST_SIZE-1; cap < EMPTY_MOVE_THRESHOLD && i >= 0; i--, cap++) {
-            type = get_move_piece(moves_list[i].encoding);
-            capture = get_move_capture(moves_list[i].encoding);
+            type = get_move_piece(moves_list[i]);
+            capture = get_move_capture(moves_list[i]);
             if (type == T || IsCapture(capture)) {
                 fifty_rule = false;
                 break;
@@ -1851,9 +1834,9 @@ bool IsInsufficientMaterial() {
     return true;
 }
 
-bool IsDrawnGame(Move move) {
+bool IsDrawnGame(long move, U64 move_key) {
     //threefold repetition
-    if (IsThreefoldRepetition(move)) return true;
+    if (IsThreefoldRepetition(move_key)) return true;
 
     //fifty move rule: if after fifty moves no pawn was moved and no captures occurred.
     if (IsEmptyMoveRule(move)) return true;
@@ -1865,6 +1848,7 @@ bool IsDrawnGame(Move move) {
 }
 
 //Used by UI and SelfPlay
+//TODO: Replace all uses of this method in this code with MakeKnownMove. This method is redundant
 inline int MakeMove(char side, int attacker, int src_block, int dst_block) {
     if (attacker != T || !IsPromotion(side, dst_block)) {
         PopBit(Bitboards[(side*6) + attacker], src_block);
@@ -1933,7 +1917,6 @@ inline void ReverseMove(char id, char side, int attacker, char capture, char pro
 }
 
 inline bool is_block_attacked(char id, int block, char side) {
-
     Int343 octa_moves = GetOctaMoves(id, block);
     Int343 check = octa_moves & ((side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
     if (IsSet(check)) return true;
@@ -1964,12 +1947,10 @@ inline bool is_block_attacked(char id, int block, char side) {
 
 #define IsInCheck(id, side, type, target, sphere_source)  ((type != S) ? is_block_attacked(id, sphere_source, !side) : is_block_attacked(id, target, !side))
 
-static inline int GetOrderValue(char type, U64 key) {
+static inline int GetOrderValue(char type) {
     switch (type) {
         case NO_ORDER:
             return 0;
-        case KEY_ORDER:
-            return (int) key;
         case RANDOM_ORDER:
             return get_random_U32_number();
         default:
@@ -1979,11 +1960,10 @@ static inline int GetOrderValue(char type, U64 key) {
     return 0;
 }
 
-static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
+static inline void GenerateMoves(char id, int depth, char side) {
     int source, target, score;
     char capture;
     Int343 piece_set; Int343 moves;
-    U64 key;
     
     //Tetras
     piece_set = globals[id].Bitboards[(side * 6) + T];
@@ -1991,9 +1971,8 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
         moves = GetValidTetraMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
-            score = score_move(id, depth, side, T, capture, IsPromotion(side, target), source, target, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, T, capture, IsPromotion(side, target)), score});
+            score = ScoreMove(id, depth, side, T, capture, IsPromotion(side, target), source, target);
+            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, T, capture, IsPromotion(side, target), side), score});
         }
     }
 
@@ -2003,9 +1982,8 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
         moves = GetValidDodecaMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
-            score = score_move(id, depth, side, D, capture, 0, source, target, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), score});
+            score = ScoreMove(id, depth, side, D, capture, 0, source, target);
+            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, D, capture, 0, side), score});
         }
     }
 
@@ -2016,9 +1994,8 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
-            score = score_move(id, depth, side, O, capture, 0, source, target, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), score});
+            score = ScoreMove(id, depth, side, O, capture, 0, source, target);
+            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, O, capture, 0, side), score});
         }
     }
 
@@ -2029,9 +2006,8 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
-            score = score_move(id, depth, side, C, capture, 0, source, target, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), score});
+            score = ScoreMove(id, depth, side, C, capture, 0, source, target);
+            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, C, capture, 0, side), score});
         }
     }
 
@@ -2042,9 +2018,8 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
-            score = score_move(id, depth, side, I, capture, 0, source, target, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), score});
+            score = ScoreMove(id, depth, side, I, capture, 0, source, target);
+            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, I, capture, 0, side), score});
         }
     }
 
@@ -2053,98 +2028,15 @@ static inline void GenerateMoves(char id, int depth, char side, U64 prev_key) {
     moves = GetValidSphereMoves(id, side, source);
     while ((target = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, target);
-        key = GetTTKey(prev_key, side, (side * 6) + S, capture, source, target);
-        score = score_move(id, depth, side, S, capture, 0, source, target, key);
-        globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, S, capture, 0), score});
+        score = ScoreMove(id, depth, side, S, capture, 0, source, target);
+        globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, S, capture, 0, side), score});
     }
 }
 
-static inline void GenerateMovesOther(char id, int depth, char side, U64 prev_key, char order_type) {
-    int source, target;
-    char capture;
-    Int343 piece_set; Int343 moves;
-    U64 key;
-    int order_value = 0;
-
-    //Tetras
-    piece_set = globals[id].Bitboards[(side * 6) + T];
-    while((source = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetValidTetraMoves(id, side, source);
-        while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
-            order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, T, capture, IsPromotion(side, target)), order_value});
-        }
-    }
-
-    //Dodecas
-    piece_set = globals[id].Bitboards[(side * 6) + D];
-    while((source = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetValidDodecaMoves(id, side, source);
-        while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
-            order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), order_value});
-        }
-    }
-
-    //Octas
-    piece_set = globals[id].Bitboards[(side * 6) + O];
-    while((source = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetOctaMoves(id, source);
-        moves ^= (moves & globals[id].Occupancies[side]);
-        while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
-            order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), order_value});
-        }
-    }
-
-    //Cubes
-    piece_set = globals[id].Bitboards[(side * 6) + C];
-    while((source = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetCubeMoves(id, source);
-        moves ^= (moves & globals[id].Occupancies[side]);
-        while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
-            order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), order_value});
-        }
-    }
-
-    //Icosas
-    piece_set = globals[id].Bitboards[(side * 6) + I];
-    while((source = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetOctaMoves(id, source) | GetCubeMoves(id, source);
-        moves ^= (moves & globals[id].Occupancies[side]);
-        while ((target = ForwardScanPop(&moves)) >= 0) {
-            capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
-            order_value = GetOrderValue(order_type, key);
-            globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), order_value});
-        }
-    }
-
-    //Sphere
-    source = BitScan(side, globals[id].Bitboards[(side * 6) + S]);
-    moves = GetValidSphereMoves(id, side, source);
-    while ((target = ForwardScanPop(&moves)) >= 0) {
-        capture = GetCapture(id, side, target);
-        key = GetTTKey(prev_key, side, (side * 6) + S, capture, source, target);
-        order_value = GetOrderValue(order_type, key);
-        globals[id].ordered_moves[depth - 1].Add({key, encode_move(source, target, S, capture, 0), order_value});
-    }
-}
-
-static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key) {
+static inline void GenerateCaptures(char id, int depth, char side) {
     int source, target, score;
     char capture;
     Int343 piece_set; Int343 moves;
-    U64 key;
 
     //Tetras
     piece_set = globals[id].Bitboards[(side * 6) + T];
@@ -2152,9 +2044,8 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
         moves = GetValidTetraMoves(id, side, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            key = GetTTKey(prev_key, side, (side * 6) + T, capture, source, target);
-            score = score_quiescence(side, T, capture);
-            globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, T, capture, IsPromotion(side, target)), score});
+            score = ScoreCapture(T, capture);
+            globals[id].quiescence_moves[depth - 1].Add({encode_move(source, target, T, capture, IsPromotion(side, target), side), score});
         }
     }
 
@@ -2165,9 +2056,8 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             if (D <= capture) {
-                key = GetTTKey(prev_key, side, (side * 6) + D, capture, source, target);
-                score = score_quiescence(side, D, capture);
-                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, D, capture, 0), score});
+                score = ScoreCapture(D, capture);
+                globals[id].quiescence_moves[depth - 1].Add({encode_move(source, target, D, capture, 0, side), score});
             }
         }
     }
@@ -2179,9 +2069,8 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             if (O <= capture) {
-                key = GetTTKey(prev_key, side, (side * 6) + O, capture, source, target);
-                score = score_quiescence(side, O, capture);
-                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, O, capture, 0), score});
+                score = ScoreCapture(O, capture);
+                globals[id].quiescence_moves[depth - 1].Add({encode_move(source, target, O, capture, 0, side), score});
             }
         }
     }
@@ -2193,9 +2082,8 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             if (C <= capture) {
-                key = GetTTKey(prev_key, side, (side * 6) + C, capture, source, target);
-                score = score_quiescence(side, C, capture);
-                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, C, capture, 0), score});
+                score = ScoreCapture(C, capture);
+                globals[id].quiescence_moves[depth - 1].Add({encode_move(source, target, C, capture, 0, side), score});
             }
         }
     }
@@ -2207,9 +2095,8 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             if (capture != T) {
-                key = GetTTKey(prev_key, side, (side * 6) + I, capture, source, target);
-                score = score_quiescence(side, I, capture);
-                globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, I, capture, 0), score});
+                score = ScoreCapture(I, capture);
+                globals[id].quiescence_moves[depth - 1].Add({encode_move(source, target, I, capture, 0, side), score});
             }
         }
     }
@@ -2219,11 +2106,86 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
     moves = GetValidSphereMoves(id, side, source) & globals[id].Occupancies[!side];
     while ((target = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, target);
-        key = GetTTKey(prev_key, side, (side * 6) + S, capture, source, target);
-        score = score_quiescence(side, S, capture);
-        globals[id].quiescence_moves[depth - 1].Add({key, encode_move(source, target, S, capture, 0), score});
+        score = ScoreCapture(S, capture);
+        globals[id].quiescence_moves[depth - 1].Add({encode_move(source, target, S, capture, 0, side), score});
     }
 }
+
+/*static inline void GenerateMovesOther(char id, int depth, char side, char order_type) {
+    int source, target;
+    char capture;
+    Int343 piece_set; Int343 moves;
+    int order_value = 0;
+
+    //Tetras
+    piece_set = globals[id].Bitboards[(side * 6) + T];
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetValidTetraMoves(id, side, source);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, target);
+            order_value = GetOrderValue(order_type);
+            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, T, capture, IsPromotion(side, target), side), order_value});
+        }
+    }
+
+    //Dodecas
+    piece_set = globals[id].Bitboards[(side * 6) + D];
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetValidDodecaMoves(id, side, source);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, target);
+            order_value = GetOrderValue(order_type);
+            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, D, capture, 0, side), order_value});
+        }
+    }
+
+    //Octas
+    piece_set = globals[id].Bitboards[(side * 6) + O];
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetOctaMoves(id, source);
+        moves ^= (moves & globals[id].Occupancies[side]);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, target);
+            order_value = GetOrderValue(order_type);
+            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, O, capture, 0, side), order_value});
+        }
+    }
+
+    //Cubes
+    piece_set = globals[id].Bitboards[(side * 6) + C];
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetCubeMoves(id, source);
+        moves ^= (moves & globals[id].Occupancies[side]);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, target);
+            order_value = GetOrderValue(order_type);
+            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, C, capture, 0, side), order_value});
+        }
+    }
+
+    //Icosas
+    piece_set = globals[id].Bitboards[(side * 6) + I];
+    while((source = ForwardScanPop(&piece_set)) >= 0) {
+        moves = GetOctaMoves(id, source) | GetCubeMoves(id, source);
+        moves ^= (moves & globals[id].Occupancies[side]);
+        while ((target = ForwardScanPop(&moves)) >= 0) {
+            capture = GetCapture(id, side, target);
+            order_value = GetOrderValue(order_type);
+            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, I, capture, 0, side), order_value});
+        }
+    }
+
+    //Sphere
+    source = BitScan(side, globals[id].Bitboards[(side * 6) + S]);
+    moves = GetValidSphereMoves(id, side, source);
+    while ((target = ForwardScanPop(&moves)) >= 0) {
+        capture = GetCapture(id, side, target);
+        order_value = GetOrderValue(order_type);
+        globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, S, capture, 0, side), order_value});
+    }
+}*/
+
+
 
 /**********************************\
  ==================================
@@ -2236,7 +2198,6 @@ static inline void GenerateCaptures(char id, int depth, char side, U64 prev_key)
 const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
 const int futility_margin[5] = {0, 100, 320, 500, 10000};
-//const int futility_margin[5] = {0, 100, 305, 548, 994}
 const long long TIME_LIMIT = 15000000; //15 seconds
 
 long NODES_SEARCHED = 0; //GLOBAL
@@ -2299,7 +2260,6 @@ inline int FutilityMoveCount(bool improving, int depth) {
 
 static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
-    //Q_NODE_COUNT++;
     int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
     int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side)) * ((!side) ? 1 : -1);
 
@@ -2307,24 +2267,28 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
     if (score >= beta) return beta;
     if (score > alpha) alpha = score;
 
-    GenerateCaptures(id, ply_depth, side, prev_key);
+    GenerateCaptures(id, ply_depth, side);
 
     Move move;
     char type, capture, promotion; int source, target;
+    U64 move_key;
     TTEntry *tt_entry;
     int legal_moves = 0;
     for (int i = 0; i < globals[id].quiescence_moves[ply_depth-1].count; i++) {
         move = globals[id].quiescence_moves[ply_depth-1].moves[i];
-        
-        tt_entry = GetTTEntry(move.key);
-        if (tt_entry->key == move.key &&
+        type = get_move_piece(move.encoding);
+        capture = get_move_capture(move.encoding);
+        source = get_move_source(move.encoding);
+        target = get_move_target(move.encoding);
+        move_key = GetTTKey(prev_key, side, (side * 6) + type, capture, source, target);
+        tt_entry = GetTTEntry(move_key);
+
+        if (tt_entry->key == move_key &&
             tt_entry->turn == TURN &&
             tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
             score = tt_entry->score;
-            //Q_TT_COUNT++;
         }
         else {
-            capture = get_move_capture(move.encoding);
             promotion = get_move_promotion(move.encoding);
 
             //Move Count and Futility Pruning
@@ -2333,10 +2297,6 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
                 if (score + material_score[capture] <= alpha) continue;
             }
 
-            source = get_move_source(move.encoding);
-            target = get_move_target(move.encoding);
-            type = get_move_piece(move.encoding);
-
             MakeKnownMove(id, side, type, capture, promotion, source, target);
 
             if (IsInCheck(id, side, type, target, sphere_source)) {
@@ -2344,11 +2304,11 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
                 continue;
             }
 
-            score = -Quiescence(id, ply_depth-1, !side, move.key, -beta, -alpha);
+            score = -Quiescence(id, ply_depth-1, !side, move_key, -beta, -alpha);
 
             ReverseMove(id, side, type, capture, promotion, source, target);
 
-            WriteToHashTable(tt_entry, ply_depth, move.key, score, alpha, beta);
+            WriteToHashTable(tt_entry, ply_depth, move_key, score, alpha, beta);
         }
 
         legal_moves++;
@@ -2430,10 +2390,11 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         }*/
     }
 
-    GenerateMoves(id, ply_depth, side, prev_key);
+    GenerateMoves(id, ply_depth, side);
 
     Move move;
     char type, capture, promotion; int source, target;
+    U64 move_key;
     TTEntry *tt_entry;
     int legal_moves = 0;
     int futility_move_count = FutilityMoveCount(improving, ply_depth);
@@ -2441,15 +2402,16 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
         capture = get_move_capture(move.encoding);
         type = get_move_piece(move.encoding);
+        source = get_move_source(move.encoding);
         target = get_move_target(move.encoding);
+        move_key = GetTTKey(prev_key, side, (side * 6) + type, capture, source, target);
+        tt_entry = GetTTEntry(move_key);
 
-        tt_entry = GetTTEntry(move.key);
-        if (tt_entry->key == move.key &&
+        if (tt_entry->key == move_key &&
             tt_entry->turn == TURN &&
             tt_entry->depth >= ply_depth && 
             !pvNode) { //If the move chain already exists, then get that score
             score = tt_entry->score;
-            //TOTAL_TT_HC++;
         }
         else {
             promotion = get_move_promotion(move.encoding);
@@ -2463,11 +2425,8 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 if (ply_depth <= 5 && legal_moves > 0) {
                     if (!IsCapture(capture) && static_eval + futility_margin[ply_depth] <= alpha) continue; //Quiet Moves
                     if (IsCapture(capture) && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
-                    //if (IsCapture(capture) && (static_eval + 180 + 201 * ply_depth + material_score[capture]) <= alpha) continue; //Captures
                 }
             }
-
-            source = get_move_source(move.encoding);
             
             MakeKnownMove(id, side, type, capture, promotion, source, target);
 
@@ -2477,7 +2436,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             }
 
             if (legal_moves == 0) {//Do normal search on the first one
-                score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, p_eval, static_eval, -beta, -alpha);
+                score = -Search(id, ply_depth-1, !side, move_key, true, move.encoding, p_eval, static_eval, -beta, -alpha);
             }
             else { //Late Move Reduction (LMR)
                 if (!in_check &&
@@ -2486,21 +2445,21 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                     ply_depth >= ReductionLimit &&
                     !IsCapture(capture) &&
                     promotion == 0)
-                    score = -Search(id, ply_depth - 2, !side, move.key, true, move.encoding, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
+                    score = -Search(id, ply_depth - 2, !side, move_key, true, move.encoding, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
                 else
                     score = alpha + 1;
 
                 // if found a better move during LMR then do PVS
                 if (score > alpha) { // re-search at full depth but with narrowed bandwitdh
-                    score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, p_eval, static_eval, -alpha - 1, -alpha);
+                    score = -Search(id, ply_depth-1, !side, move_key, true, move.encoding, p_eval, static_eval, -alpha - 1, -alpha);
                     if ((score > alpha) && (score < beta))
-                        score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, p_eval, static_eval, -beta, -alpha);
+                        score = -Search(id, ply_depth-1, !side, move_key, true, move.encoding, p_eval, static_eval, -beta, -alpha);
                 }
             }
 
             ReverseMove(id, side, type, capture, promotion, source, target);
 
-            WriteToHashTable(tt_entry, ply_depth, move.key, score, alpha, beta);
+            WriteToHashTable(tt_entry, ply_depth, move_key, score, alpha, beta);
         }
         
         legal_moves++;
@@ -2508,7 +2467,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         if (score >= beta) {
             if (!IsCapture(capture)) {
                 globals[id].killer_moves[1][ply_depth-1] = globals[id].killer_moves[0][ply_depth-1];
-                globals[id].killer_moves[0][ply_depth-1] = move;
+                globals[id].killer_moves[0][ply_depth-1] = move.encoding;
                 globals[id].history_moves[(side * 6) + type][target] += ply_depth * ply_depth;
             }
             globals[id].ordered_moves[ply_depth-1].Clear();
@@ -2536,18 +2495,15 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     int score = 0;
     Move move;
     char type, capture, promotion; int source, target;
-    int legal_moves = 0;
+    U64 move_key; 
     U64 start_key = BuildTranspositionKey();
 
+    int legal_moves = 0;
     int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
 
-    GenerateMoves(id, ply_depth, side, start_key); 
-    /*if (id < 2) //6 threads, so 3 are in order
-        GenerateMoves(id, ply_depth, side, start_key); 
-    else
-        GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);*/
+    GenerateMoves(id, ply_depth, side); 
 
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
@@ -2564,8 +2520,10 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
             continue;
         }
 
-        if (!IsRepeated(move.key))
-            score = -Search(id, ply_depth-1, !side, move.key, true, move.encoding, 0, static_eval, -beta, -alpha);
+        move_key = GetTTKey(start_key, side, (side * 6) + type, capture, source, target);
+
+        if (!IsRepeated(move_key))
+            score = -Search(id, ply_depth-1, !side, move_key, true, move.encoding, 0, static_eval, -beta, -alpha);
         else
             score = -MATE_VALUE;
 
@@ -2590,14 +2548,20 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
 
     mtx.lock();
     if (!thread_stopped) {
+        long final_move = globals[id].search_result.move.encoding;
+        U64 final_move_key = GetTTKey(start_key, get_move_side(final_move), 
+            (get_move_side(final_move) * 6) + get_move_piece(final_move), 
+            get_move_capture(final_move), get_move_source(final_move), 
+            get_move_target(final_move));
+
         if (legal_moves == 0) // we don't have any legal moves to make in the current postion
             globals[id].search_result.flag = (in_check) ? CHECKMATE : STALEMATE;
-        else if (IsDrawnGame(globals[id].search_result.move))
+        else if (IsDrawnGame(final_move, final_move_key))
             globals[id].search_result.flag = DRAW_GAME;
         else
             globals[id].search_result.flag = FOUND_MOVE;
         
-        globals[id].search_result.score = score;
+        globals[id].search_result.final_score = score;
         thread_stopped = true;
         AVERAGE_SEARCH_TIME += GetTimePassed();
     }
@@ -2646,9 +2610,9 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
     return best_result;
 }
 
-void SwitchTurnValues(Move move) {
+void SwitchTurnValues(U64 move_key) {
     //Switch sides and readjust key variables
-    AddToMoveList(move);
+    AddToMoveList(move_key);
     SIDE = !SIDE;
     ClearTimeNodeValues();
     TURN++;
@@ -2657,7 +2621,7 @@ void SwitchTurnValues(Move move) {
 void ClearMiscTables() {
     for (int i = 0; i < DEPTH; i++) ordered_moves[i].Clear();
     for (int i = 0; i < QDEPTH; i++) quiescence_moves[i].Clear();
-    for (int i = 0; i < MOVES_LIST_SIZE; i++) moves_list[i].Clear();
+    for (int i = 0; i < MOVES_LIST_SIZE; i++) moves_list[i] = 0;
 }
 
 // init all variables
@@ -2745,7 +2709,8 @@ void SelfPlay() {
 
     SearchResult search_result;
     Move move;
-    char type, capture, promotion; int source, target;
+    char type, capture, promotion, side; int source, target;
+    U64 move_key;
 
     PrintTitle();
 
@@ -2781,6 +2746,8 @@ void SelfPlay() {
         type = get_move_piece(move.encoding);
         capture = get_move_capture(move.encoding);
         promotion = get_move_promotion(move.encoding);
+        side = get_move_side(move.encoding);
+        move_key = GetTTKey(BuildTranspositionKey(), side, (side * 6) + type, capture, source, target);
 
         //Get length of search, for testing purposes
         search_time = GetTimePassed();
@@ -2810,20 +2777,12 @@ void SelfPlay() {
 
         //Print out testing/logging info
         printf("[Turn=%d|Depth=%d|QDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n",
-                TURN, DEPTH, QDEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
-                search_result.score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (stop_game) ? " >> TIMEOUT" : "");
+                TURN, DEPTH, QDEPTH, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
+                search_result.final_score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (stop_game) ? " >> TIMEOUT" : "");
 
-        /*printf("[Turn=%d|Depth=%d|QDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s|QNodeCount=%d|QTTHC=%d|TTExactHC=%d|TotalTTHC=%d]%s\n",
-                TURN, DEPTH, QDEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
-                search_result.score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), Q_NODE_COUNT, Q_TT_COUNT, TT_EXACT_HIT_COUNT, TOTAL_TT_HC, (stop_game) ? " >> TIMEOUT" : "");
-
-        Q_TT_COUNT = 0;
-        TT_EXACT_HIT_COUNT = 0;
-        Q_NODE_COUNT = 0;
-        TOTAL_TT_HC = 0;*/
 
         //Switch sides and readjust key variables
-        SwitchTurnValues(move);
+        SwitchTurnValues(move_key);
     }
 }
 
@@ -2907,9 +2866,9 @@ extern "C"
     }
 
     DllExport void MakeBBMove(int side, int type, int source, int target) {
+        U64 start_key = BuildTranspositionKey();
         char capture = MakeMove(side, type, source, target);
-        U64 key = GetTTKey(BuildTranspositionKey(), side, (side * 6) + type, capture, source, target);
-        SwitchTurnValues({key, encode_move(source, target, type, capture, 0), 0});
+        SwitchTurnValues(GetTTKey(start_key, side, (side * 6) + type, capture, source, target));
     }
 
     DllExport long Search(int side) {
