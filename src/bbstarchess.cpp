@@ -1029,7 +1029,7 @@ struct SearchResult {
     SearchResult search_result;
 };
 
-const size_t MAX_THREADS = 1; //4
+const size_t MAX_THREADS = 4; //4
 Global globals[MAX_THREADS]; //GLOBAL
 
 // encode move
