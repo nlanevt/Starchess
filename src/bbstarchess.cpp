@@ -86,6 +86,12 @@ const char CHECKMATE = 100;
 const char STALEMATE = 101;
 const char DRAW_GAME = 102;
 const char NO_CAPTURE = 6;
+const char NO_DIR = 19;
+
+const int MATE_SCORE = 48000;
+const int MATE_VALUE = 49000;
+const int DRAW_VALUE = 0;
+const int INF = 50000;
 
 // convert ASCII character pieces to encoded constants
 int char_pieces[] = {
@@ -106,9 +112,6 @@ int char_pieces[] = {
 char XSymbols[] = "abcdefg";
 char YSymbols[] = "1234567";
 char ZSymbols[] = "ABCDEFG";
-
-
-const char NO_DIR = 19;
 
 enum {
     NORTH,      //LSB
@@ -1028,7 +1031,7 @@ struct SearchResult {
     SearchResult search_result;
 };
 
-const size_t MAX_THREADS = 6;
+const size_t MAX_THREADS = 1;
 Global globals[MAX_THREADS]; //GLOBAL
 
 // encode move
@@ -1242,6 +1245,17 @@ void ClearTranspositionTable() {
     }
 }
 
+static inline void WriteToHashTable(TTEntry * tt_entry, int ply_depth, U64 key, int score, int alpha, int beta) {
+    //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
+    if (tt_entry->turn != TURN || (tt_entry->key == key && ply_depth > tt_entry->depth)) {
+        tt_entry->key = key;
+        tt_entry->turn = TURN;
+        tt_entry->depth = ply_depth;
+        tt_entry->score = score;
+        tt_entry->flag = (score > alpha && score < beta) ? TT_EXACT : TT_ALPHA;
+    }
+}
+
 /**********************************\
  ==================================
  
@@ -1252,10 +1266,6 @@ void ClearTranspositionTable() {
 //const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
 //const int material_score[12] = { 100, 305, 350, 548, 994, 32767, -100, -305, -350, -548, -994, -32767};
 const int material_score[12] = { 100, 320, 325, 500, 1000, 32767, -100, -320, -325, -500, -1000, -32767};
-const int MATE_SCORE = 48000;
-const int MATE_VALUE = 49000;
-const int DRAW_VALUE = 0;
-const int INF = 50000;
 
 //Positional score board
 const int position_scores[6][343] =
@@ -1706,12 +1716,17 @@ inline int Evaluation(char id, char side, bool in_check) {
     return score;
 }
 
+/*int TT_EXACT_HIT_COUNT = 0;
+int Q_TT_COUNT = 0;
+int Q_NODE_COUNT = 0;
+int TOTAL_TT_HC = 0;*/
 static inline int score_move(char id, int ply_depth, char side, char type, char capture, char promotion, int source, int target, U64 key) {
-    TTEntry *tt_entry = GetTTEntry(key);
-    if (tt_entry->key == key && tt_entry->turn == TURN && tt_entry->flag == TT_EXACT) { //Transposition Table pieces go first
+    /*TTEntry *tt_entry = GetTTEntry(key); //Transposition Table pieces go first
+    if (tt_entry->key == key && tt_entry->turn == TURN && tt_entry->flag == TT_EXACT) { 
+        TT_EXACT_HIT_COUNT++;
         return 10000;
     }
-    else if (IsCapture(capture)) {
+    else */if (IsCapture(capture)) {
         return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
     }
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
@@ -1918,20 +1933,9 @@ inline void ReverseMove(char id, char side, int attacker, char capture, char pro
 }
 
 inline bool is_block_attacked(char id, int block, char side) {
-    // attacked by white tetras
-    Int343 check = tetra_attacks[black][block] & globals[id].Bitboards[T];
-    if ((side == white) && (IsSet(check))) return true;
-
-    // attacked by black tetras
-    check = tetra_attacks[white][block] & globals[id].Bitboards[t];
-    if ((side == black) && (IsSet(check))) return true;
-
-    // attacked by dodecas
-    check = dodeca_attacks[block] & ((side == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]);
-    if (IsSet(check)) return true;
 
     Int343 octa_moves = GetOctaMoves(id, block);
-    check = octa_moves & ((side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
+    Int343 check = octa_moves & ((side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
     if (IsSet(check)) return true;
 
     //attacked by Cube
@@ -1941,6 +1945,14 @@ inline bool is_block_attacked(char id, int block, char side) {
 
     //attacked by Icosa
     check = (cube_moves | octa_moves) & ((side == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]);
+    if (IsSet(check)) return true;
+
+    // attacked by dodecas
+    check = dodeca_attacks[block] & ((side == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]);
+    if (IsSet(check)) return true;
+
+    check = (side == white) ? (tetra_attacks[black][block] & globals[id].Bitboards[T]) 
+                                   : (tetra_attacks[white][block] & globals[id].Bitboards[t]);
     if (IsSet(check)) return true;
 
     // attacked by Sphere
@@ -2287,6 +2299,7 @@ inline int FutilityMoveCount(bool improving, int depth) {
 
 static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
     globals[id].NODES_SEARCHED++;
+    //Q_NODE_COUNT++;
     int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
     int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side)) * ((!side) ? 1 : -1);
 
@@ -2308,6 +2321,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
             tt_entry->turn == TURN &&
             tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
             score = tt_entry->score;
+            //Q_TT_COUNT++;
         }
         else {
             capture = get_move_capture(move.encoding);
@@ -2334,14 +2348,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
 
             ReverseMove(id, side, type, capture, promotion, source, target);
 
-            //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
-            if (tt_entry->turn != TURN || (tt_entry->key == move.key && ply_depth > tt_entry->depth)) {
-                tt_entry->key = move.key;
-                tt_entry->turn = TURN;
-                tt_entry->depth = ply_depth;
-                tt_entry->score = score;
-                tt_entry->flag = (score > alpha & score < beta) ? TT_EXACT : TT_ALPHA; //Might not be necessary
-            }
+            WriteToHashTable(tt_entry, ply_depth, move.key, score, alpha, beta);
         }
 
         legal_moves++;
@@ -2382,8 +2389,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
 
     if (!in_check && !pvNode) {
         //Razoring
-        if (/*ply_depth <= 3 &&*/
-            static_eval < alpha - 426 - 252  * ply_depth * ply_depth) { //Use 600 instead
+        if (static_eval < alpha - 426 - 252 * ply_depth * ply_depth) { //Use 600 instead
             score = Quiescence(id, QDEPTH, side, prev_key, alpha - 1, alpha);
             if (score < alpha)
                 return score;
@@ -2395,6 +2401,14 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             static_eval < 48000) {
             return static_eval;
         }
+
+        //Static Evaluation - Doesn't do much
+        /*if (ply_depth < 3 && !pvNode && !in_check && abs(beta - 1) > -INF + 100) {   
+            int eval_margin = 120 * ply_depth;
+            
+            if (static_eval - eval_margin >= beta)
+                return static_eval - eval_margin;
+        }*/
 
         //Null Move Pruning
         if (null_move) {
@@ -2435,6 +2449,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             tt_entry->depth >= ply_depth && 
             !pvNode) { //If the move chain already exists, then get that score
             score = tt_entry->score;
+            //TOTAL_TT_HC++;
         }
         else {
             promotion = get_move_promotion(move.encoding);
@@ -2454,7 +2469,6 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
 
             source = get_move_source(move.encoding);
             
-
             MakeKnownMove(id, side, type, capture, promotion, source, target);
 
             if (IsInCheck(id, side, type, target, sphere_source)) {
@@ -2486,14 +2500,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
 
             ReverseMove(id, side, type, capture, promotion, source, target);
 
-            //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
-            if (tt_entry->turn != TURN || (tt_entry->key == move.key && ply_depth > tt_entry->depth)) {
-                tt_entry->key = move.key;
-                tt_entry->turn = TURN;
-                tt_entry->depth = ply_depth;
-                tt_entry->score = score;
-                tt_entry->flag = (score > alpha & score < beta) ? TT_EXACT : TT_ALPHA;
-            }
+            WriteToHashTable(tt_entry, ply_depth, move.key, score, alpha, beta);
         }
         
         legal_moves++;
@@ -2536,10 +2543,11 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
 
-    if (id < 3) //6 threads, so 3 are in order
+    GenerateMoves(id, ply_depth, side, start_key); 
+    /*if (id < 2) //6 threads, so 3 are in order
         GenerateMoves(id, ply_depth, side, start_key); 
     else
-        GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);
+        GenerateMovesOther(id, ply_depth, side, start_key, RANDOM_ORDER);*/
 
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
         move = globals[id].ordered_moves[ply_depth-1].moves[i];
@@ -2804,6 +2812,15 @@ void SelfPlay() {
         printf("[Turn=%d|Depth=%d|QDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n",
                 TURN, DEPTH, QDEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
                 search_result.score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (stop_game) ? " >> TIMEOUT" : "");
+
+        /*printf("[Turn=%d|Depth=%d|QDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s|QNodeCount=%d|QTTHC=%d|TTExactHC=%d|TotalTTHC=%d]%s\n",
+                TURN, DEPTH, QDEPTH, (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
+                search_result.score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), Q_NODE_COUNT, Q_TT_COUNT, TT_EXACT_HIT_COUNT, TOTAL_TT_HC, (stop_game) ? " >> TIMEOUT" : "");
+
+        Q_TT_COUNT = 0;
+        TT_EXACT_HIT_COUNT = 0;
+        Q_NODE_COUNT = 0;
+        TOTAL_TT_HC = 0;*/
 
         //Switch sides and readjust key variables
         SwitchTurnValues(move);
