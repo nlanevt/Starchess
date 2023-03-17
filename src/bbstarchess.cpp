@@ -418,8 +418,10 @@ Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
-const int DEPTH = 8; //8
-const int QDEPTH = 10; //12
+const int MAX_DEPTH = 12;
+const int MAX_QDEPTH = 12;
+int DEPTH = MAX_DEPTH; //8
+int QDEPTH = MAX_QDEPTH; //12
 
 /**********************************\
  ==================================
@@ -1005,16 +1007,20 @@ struct OrderedMoves {
 };
 
 struct SearchResult {
-    Move move;
-    char thread_id;
+    long final_move;
+    U64 final_move_key;
     int final_score;
+    char thread_id;
     char flag;
-
+    int final_depth;
+    
     void Clear() {
-        move.Clear();
-        thread_id = 0;
+        final_move = 0;
+        final_move_key = 0;
         final_score = 0;
+        thread_id = 0;
         flag = NO_MOVE;
+        final_depth = 0;
     }
 };
 
@@ -1022,11 +1028,13 @@ struct SearchResult {
     Int343 Bitboards[12];
     Int343 Occupancies[3];
     long NODES_SEARCHED = 0;
-    long killer_moves[2][DEPTH];
+    long killer_moves[2][MAX_DEPTH];
     int history_moves[12][343]; //history moves [piece][square]
-    OrderedMoves ordered_moves[DEPTH];
-    OrderedMoves quiescence_moves[QDEPTH];
+    OrderedMoves ordered_moves[MAX_DEPTH];
+    OrderedMoves quiescence_moves[MAX_QDEPTH];
     SearchResult search_result;
+    int pv_length[MAX_DEPTH]; // PV length [ply]
+    long pv_table[MAX_DEPTH][MAX_DEPTH]; // PV table [ply][ply]
 };
 
 const size_t MAX_THREADS = 4; //4
@@ -1172,6 +1180,26 @@ static inline int GetCapture(char id, char side, int target) {
         return S;
 
     return NO_CAPTURE;
+}
+
+void print_move(long move) {
+    char type = get_move_piece(move);
+    int source = get_move_source(move);
+    int target = get_move_target(move);
+    printf("%c-%d-%d", ascii_pieces[type], source, target);
+}
+
+static inline void HandlePVMove(char id, int ply, long move) {
+    // write PV move
+    globals[id].pv_table[ply][ply] = move;
+    
+    // loop over the next ply
+    for (int next_ply = ply + 1; next_ply < globals[id].pv_length[ply + 1]; ++next_ply)
+        // copy move from deeper ply into a current ply's line
+        globals[id].pv_table[ply][next_ply] = globals[id].pv_table[ply + 1][next_ply];
+    
+    // adjust PV length
+    globals[id].pv_length[ply] = globals[id].pv_length[ply + 1];
 }
 
 /**********************************\
@@ -1715,15 +1743,20 @@ inline int Evaluation(char id, char side, bool in_check) {
     return score;
 }
 
-static inline int ScoreMove(char id, int ply_depth, char side, char type, char capture, char promotion, int source, int target) {
-    if (IsCapture(capture)) {
+int PV_COUNTER = 0;
+static inline int ScoreMove(char id, int total_depth, int ply_depth, long move, char side, char type, char capture, char promotion, int target) {
+    //If PV Move
+    if (globals[id].pv_table[0][total_depth - ply_depth] == move && move != 0) {
+        PV_COUNTER++;
+        return 20000;
+    }
+    else if (IsCapture(capture)) {
         return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
     }
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
         return 9000; //Made up number for promotion relative to the mvv_lva lookup table;
     }
     else {
-        long move = encode_move(source, target, type, capture, promotion, side);
         if (globals[id].killer_moves[0][ply_depth-1] == move) {
             return 8000;
         }
@@ -1749,8 +1782,8 @@ static inline int ScoreMove(char id, int ply_depth, char side, char type, char c
 \**********************************/
 const size_t MOVES_LIST_SIZE = 1000;
 const size_t EMPTY_MOVE_THRESHOLD = 100;
-OrderedMoves ordered_moves[DEPTH]; //GLOBAL
-OrderedMoves quiescence_moves[QDEPTH]; //GLOBAL
+OrderedMoves ordered_moves[MAX_DEPTH]; //GLOBAL
+OrderedMoves quiescence_moves[MAX_QDEPTH]; //GLOBAL
 U64 moves_list[MOVES_LIST_SIZE]; //TODO: THere is likely an issue with how these are handled through Unity. On loaded games this information disappears
 
 static inline void AddToMoveList(U64 move_key) {
@@ -1960,10 +1993,11 @@ static inline int GetOrderValue(char type) {
     return 0;
 }
 
-static inline void GenerateMoves(char id, int depth, char side) {
+static inline void GenerateMoves(char id, int total_depth, int depth, char side) {
     int source, target, score;
     char capture;
     Int343 piece_set; Int343 moves;
+    long move;
     
     //Tetras
     piece_set = globals[id].Bitboards[(side * 6) + T];
@@ -1971,8 +2005,9 @@ static inline void GenerateMoves(char id, int depth, char side) {
         moves = GetValidTetraMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            score = ScoreMove(id, depth, side, T, capture, IsPromotion(side, target), source, target);
-            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, T, capture, IsPromotion(side, target), side), score});
+            move = encode_move(source, target, T, capture, IsPromotion(side, target), side);
+            score = ScoreMove(id, total_depth, depth, move, side, T, capture, IsPromotion(side, target), target);
+            globals[id].ordered_moves[depth - 1].Add({move, score});
         }
     }
 
@@ -1982,8 +2017,9 @@ static inline void GenerateMoves(char id, int depth, char side) {
         moves = GetValidDodecaMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            score = ScoreMove(id, depth, side, D, capture, 0, source, target);
-            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, D, capture, 0, side), score});
+            move = encode_move(source, target, D, capture, 0, side);
+            score = ScoreMove(id, total_depth, depth, move, side, D, capture, 0, target);
+            globals[id].ordered_moves[depth - 1].Add({move, score});
         }
     }
 
@@ -1994,8 +2030,9 @@ static inline void GenerateMoves(char id, int depth, char side) {
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            score = ScoreMove(id, depth, side, O, capture, 0, source, target);
-            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, O, capture, 0, side), score});
+            move = encode_move(source, target, O, capture, 0, side);
+            score = ScoreMove(id, total_depth, depth, move, side, O, capture, 0, target);
+            globals[id].ordered_moves[depth - 1].Add({move, score});
         }
     }
 
@@ -2006,8 +2043,9 @@ static inline void GenerateMoves(char id, int depth, char side) {
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            score = ScoreMove(id, depth, side, C, capture, 0, source, target);
-            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, C, capture, 0, side), score});
+            move = encode_move(source, target, C, capture, 0, side);
+            score = ScoreMove(id, total_depth, depth, move, side, C, capture, 0, target);
+            globals[id].ordered_moves[depth - 1].Add({move, score});
         }
     }
 
@@ -2018,8 +2056,9 @@ static inline void GenerateMoves(char id, int depth, char side) {
         moves ^= (moves & globals[id].Occupancies[side]);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            score = ScoreMove(id, depth, side, I, capture, 0, source, target);
-            globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, I, capture, 0, side), score});
+            move = encode_move(source, target, I, capture, 0, side);
+            score = ScoreMove(id, total_depth, depth, move, side, I, capture, 0, target);
+            globals[id].ordered_moves[depth - 1].Add({move, score});
         }
     }
 
@@ -2028,8 +2067,9 @@ static inline void GenerateMoves(char id, int depth, char side) {
     moves = GetValidSphereMoves(id, side, source);
     while ((target = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, target);
-        score = ScoreMove(id, depth, side, S, capture, 0, source, target);
-        globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, S, capture, 0, side), score});
+        move = encode_move(source, target, S, capture, 0, side);
+        score = ScoreMove(id, total_depth, depth, move, side, S, capture, 0, target);
+        globals[id].ordered_moves[depth - 1].Add({move, score});
     }
 }
 
@@ -2111,7 +2151,7 @@ static inline void GenerateCaptures(char id, int depth, char side) {
     }
 }
 
-/*static inline void GenerateMovesOther(char id, int depth, char side, char order_type) {
+static inline void GenerateMovesOther(char id, int depth, char side, char order_type) {
     int source, target;
     char capture;
     Int343 piece_set; Int343 moves;
@@ -2183,9 +2223,7 @@ static inline void GenerateCaptures(char id, int depth, char side) {
         order_value = GetOrderValue(order_type);
         globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, S, capture, 0, side), order_value});
     }
-}*/
-
-
+}
 
 /**********************************\
  ==================================
@@ -2198,14 +2236,15 @@ static inline void GenerateCaptures(char id, int depth, char side) {
 const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
 const int futility_margin[5] = {0, 100, 320, 500, 10000};
-const long long TIME_LIMIT = 15000000; //15 seconds
+//const long long TIME_LIMIT = 15000000; //15 seconds
+const long long TIME_LIMIT = 4000000;
 
 long NODES_SEARCHED = 0; //GLOBAL
 int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends. //GLOBAL
 long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends. //GLOBAL
 long long MAX_SEARCH_TIME = 0; //GLOBAL
-bool stop_game = false; //GLOBAL
-bool thread_stopped = false; //GLOBAL
+bool TIMEOUT_STOPPED = false; //GLOBAL
+bool THREAD_STOPPED = false; //GLOBAL
 chrono::time_point<chrono::steady_clock> START_TIME;
 mutex mtx; //Used for locking thread when finishing search
 
@@ -2221,20 +2260,18 @@ inline long long GetTimePassed() {
 }
 
 //Returns true if the game needs to be stopped.
-inline bool TimedOut(char id, int * depth) {
-    if (stop_game) return true;
+inline bool StopGame(char id) {
+    if (THREAD_STOPPED || TIMEOUT_STOPPED) return true;
     if ((globals[id].NODES_SEARCHED & 2047) != 0) return false;
 
     long long time_passed = GetTimePassed();
     if (time_passed > TIME_LIMIT) {
+        mtx.lock();
         TIMEOUT_COUNT++;
-        stop_game = true;
-        return true;
-    }
+        TIMEOUT_STOPPED = true;
+        mtx.unlock();
 
-    //Time Crunching
-    if (time_passed > 10000000) {
-        depth--;
+        return true;
     }
 
     return false;
@@ -2242,8 +2279,8 @@ inline bool TimedOut(char id, int * depth) {
 
 void ClearTimeNodeValues() {
     NODES_SEARCHED = 0;
-    stop_game = false;
-    thread_stopped = false;
+    TIMEOUT_STOPPED = false;
+    THREAD_STOPPED = false;
 }
 
 string GetTimeStampString(long long timestamp) {
@@ -2259,27 +2296,25 @@ inline int FutilityMoveCount(bool improving, int depth) {
 }
 
 static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
-    globals[id].NODES_SEARCHED++;
     int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
     int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side)) * ((!side) ? 1 : -1);
 
-    if (ply_depth <= 0) return score;
+    if (ply_depth <= 0 || THREAD_STOPPED || TIMEOUT_STOPPED) return score;
     if (score >= beta) return beta;
     if (score > alpha) alpha = score;
 
+    globals[id].NODES_SEARCHED++;
+
     GenerateCaptures(id, ply_depth, side);
 
-    Move move;
-    char type, capture, promotion; int source, target;
-    U64 move_key;
-    TTEntry *tt_entry;
+    char type, capture, promotion; int source, target; long move; U64 move_key; TTEntry *tt_entry;
     int legal_moves = 0;
     for (int i = 0; i < globals[id].quiescence_moves[ply_depth-1].count; i++) {
-        move = globals[id].quiescence_moves[ply_depth-1].moves[i];
-        type = get_move_piece(move.encoding);
-        capture = get_move_capture(move.encoding);
-        source = get_move_source(move.encoding);
-        target = get_move_target(move.encoding);
+        move = globals[id].quiescence_moves[ply_depth-1].moves[i].encoding;
+        type = get_move_piece(move);
+        capture = get_move_capture(move);
+        source = get_move_source(move);
+        target = get_move_target(move);
         move_key = GetTTKey(prev_key, side, (side * 6) + type, capture, source, target);
         tt_entry = GetTTEntry(move_key);
 
@@ -2289,11 +2324,11 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
             score = tt_entry->score;
         }
         else {
-            promotion = get_move_promotion(move.encoding);
+            promotion = get_move_promotion(move);
 
             //Move Count and Futility Pruning
             if (promotion == 0) {
-                if (legal_moves > 6) continue;  // legal_moves > 6
+                if (legal_moves > 6) continue;
                 if (score + material_score[capture] <= alpha) continue;
             }
 
@@ -2330,10 +2365,14 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
 //pp_eval = static eval from this sides last turn, so the turn before the last turn
 //p_eval = static eval from the last turn, so the opponents turn that led to this one.
 //p_move = previous move.encoding that caused this search
-static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool null_move, long p_move, int pp_eval, int p_eval, int alpha, int beta) {
+static inline int SubSearch(char id, int total_depth, int ply_depth, char side, U64 prev_key, bool null_move, long p_move, int pp_eval, int p_eval, int alpha, int beta) {
+    //Set PV Length. This must occur here at the top.
+    int ply = (ply_depth >= 0) ? total_depth - ply_depth : total_depth-1;
+    globals[id].pv_length[ply] = ply;
+
+    if (ply_depth <= 0 || StopGame(id)) return Quiescence(id, QDEPTH, side, prev_key, alpha, beta);
+
     globals[id].NODES_SEARCHED++;
-    if(thread_stopped || TimedOut(id, &ply_depth)) return DRAW_VALUE; //Times out search
-    if (ply_depth <= 0) return Quiescence(id, QDEPTH, side, prev_key, alpha, beta);
 
     // Mate Distance Pruning;
     if (alpha < -MATE_VALUE + (DEPTH - ply_depth)) alpha = -MATE_VALUE + (DEPTH - ply_depth);
@@ -2362,7 +2401,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             return static_eval;
         }
 
-        //Static Evaluation - Doesn't do much
+        //Static Evaluation - Doesn't do much - Here for reference
         /*if (ply_depth < 3 && !pvNode && !in_check && abs(beta - 1) > -INF + 100) {   
             int eval_margin = 120 * ply_depth;
             
@@ -2373,7 +2412,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         //Null Move Pruning
         if (null_move) {
             if (ply_depth >= 3)
-                score = -Search(id, ply_depth - 3, !side, prev_key, false, p_move, p_eval, static_eval, -beta, -beta + 1);
+                score = -SubSearch(id, total_depth, ply_depth - 3, !side, prev_key, false, p_move, p_eval, static_eval, -beta, -beta + 1);
             else
                 score = -Quiescence(id, QDEPTH, !side, prev_key, -beta, -beta + 1);
             
@@ -2381,7 +2420,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                 return beta;
         }
 
-        //Probability Cut
+        //Probability Cut - Doesn't do much - Here for reference.
         /*if (ply_depth > 3 && (IsCapture(get_move_capture(p_move)) || get_move_promotion(p_move) != 0)) {
             int bound = beta + 191 - 54 * improving;
             score = Search(id, ply_depth - 3, side, prev_key, true, p_move, pp_eval, p_eval, -bound, -bound+1);
@@ -2390,20 +2429,17 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         }*/
     }
 
-    GenerateMoves(id, ply_depth, side);
+    GenerateMoves(id, total_depth, ply_depth, side);
 
-    Move move;
-    char type, capture, promotion; int source, target;
-    U64 move_key;
-    TTEntry *tt_entry;
+    char type, capture, promotion; int source, target; long move; U64 move_key; TTEntry *tt_entry;
     int legal_moves = 0;
     int futility_move_count = FutilityMoveCount(improving, ply_depth);
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
-        move = globals[id].ordered_moves[ply_depth-1].moves[i];
-        capture = get_move_capture(move.encoding);
-        type = get_move_piece(move.encoding);
-        source = get_move_source(move.encoding);
-        target = get_move_target(move.encoding);
+        move = globals[id].ordered_moves[ply_depth-1].moves[i].encoding;
+        capture = get_move_capture(move);
+        type = get_move_piece(move);
+        source = get_move_source(move);
+        target = get_move_target(move);
         move_key = GetTTKey(prev_key, side, (side * 6) + type, capture, source, target);
         tt_entry = GetTTEntry(move_key);
 
@@ -2414,7 +2450,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             score = tt_entry->score;
         }
         else {
-            promotion = get_move_promotion(move.encoding);
+            promotion = get_move_promotion(move);
 
             //Early Pruning
             if (!in_check && promotion == 0) {
@@ -2436,7 +2472,7 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
             }
 
             if (legal_moves == 0) {//Do normal search on the first one
-                score = -Search(id, ply_depth-1, !side, move_key, true, move.encoding, p_eval, static_eval, -beta, -alpha);
+                score = -SubSearch(id, total_depth, ply_depth-1, !side, move_key, true, move, p_eval, static_eval, -beta, -alpha);
             }
             else { //Late Move Reduction (LMR)
                 if (!in_check &&
@@ -2445,15 +2481,15 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
                     ply_depth >= ReductionLimit &&
                     !IsCapture(capture) &&
                     promotion == 0)
-                    score = -Search(id, ply_depth - 2, !side, move_key, true, move.encoding, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
+                    score = -SubSearch(id, total_depth, ply_depth - 2, !side, move_key, true, move, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
                 else
                     score = alpha + 1;
 
                 // if found a better move during LMR then do PVS
                 if (score > alpha) { // re-search at full depth but with narrowed bandwitdh
-                    score = -Search(id, ply_depth-1, !side, move_key, true, move.encoding, p_eval, static_eval, -alpha - 1, -alpha);
+                    score = -SubSearch(id, total_depth, ply_depth-1, !side, move_key, true, move, p_eval, static_eval, -alpha - 1, -alpha);
                     if ((score > alpha) && (score < beta))
-                        score = -Search(id, ply_depth-1, !side, move_key, true, move.encoding, p_eval, static_eval, -beta, -alpha);
+                        score = -SubSearch(id, total_depth, ply_depth-1, !side, move_key, true, move, p_eval, static_eval, -beta, -alpha);
                 }
             }
 
@@ -2464,18 +2500,20 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
         
         legal_moves++;
 
-        if (score >= beta) {
-            if (!IsCapture(capture)) {
-                globals[id].killer_moves[1][ply_depth-1] = globals[id].killer_moves[0][ply_depth-1];
-                globals[id].killer_moves[0][ply_depth-1] = move.encoding;
-                globals[id].history_moves[(side * 6) + type][target] += ply_depth * ply_depth;
-            }
-            globals[id].ordered_moves[ply_depth-1].Clear();
-            return beta;
-        }
-
         if (score > alpha) {
             alpha = score;
+            HandlePVMove(id, ply, move);
+
+            if (score >= beta) {
+                if (!IsCapture(capture)) {
+                    globals[id].killer_moves[1][ply_depth-1] = globals[id].killer_moves[0][ply_depth-1];
+                    globals[id].killer_moves[0][ply_depth-1] = move;
+                    globals[id].history_moves[(side * 6) + type][target] += ply_depth * ply_depth;
+                }
+
+                globals[id].ordered_moves[ply_depth-1].Clear();
+                return beta;
+            }
         }
     }
 
@@ -2489,13 +2527,9 @@ static inline int Search(char id, int ply_depth, char side, U64 prev_key, bool n
     return alpha;
 }
 
-static inline void SearchRootHelper(char id, int ply_depth, char side) {
-    int alpha = -INF;
-    int beta = INF;
+static inline void Negamax(char id, int ply_depth, char side, int alpha, int beta) {
     int score = 0;
-    Move move;
-    char type, capture, promotion; int source, target;
-    U64 move_key; 
+    char type, capture, promotion; int source, target; long move; U64 move_key; 
     U64 start_key = BuildTranspositionKey();
 
     int legal_moves = 0;
@@ -2503,15 +2537,17 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check) * ((!side) ? 1 : -1);
 
-    GenerateMoves(id, ply_depth, side); 
+    globals[id].pv_length[0] = 0;
+
+    GenerateMoves(id, ply_depth, ply_depth, side); 
 
     for (int i = 0; i < globals[id].ordered_moves[ply_depth-1].count; i++) {
-        move = globals[id].ordered_moves[ply_depth-1].moves[i];
-        source = get_move_source(move.encoding);
-        target = get_move_target(move.encoding);
-        type = get_move_piece(move.encoding);
-        capture = get_move_capture(move.encoding);
-        promotion = get_move_promotion(move.encoding);
+        move = globals[id].ordered_moves[ply_depth-1].moves[i].encoding;
+        source = get_move_source(move);
+        target = get_move_target(move);
+        type = get_move_piece(move);
+        capture = get_move_capture(move);
+        promotion = get_move_promotion(move);
 
         MakeKnownMove(id, side, type, capture, promotion, source, target);
 
@@ -2523,7 +2559,7 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
         move_key = GetTTKey(start_key, side, (side * 6) + type, capture, source, target);
 
         if (!IsRepeated(move_key))
-            score = -Search(id, ply_depth-1, !side, move_key, true, move.encoding, 0, static_eval, -beta, -alpha);
+            score = -SubSearch(id, ply_depth, ply_depth-1, !side, move_key, true, move, 0, static_eval, -beta, -alpha);
         else
             score = -MATE_VALUE;
 
@@ -2531,49 +2567,56 @@ static inline void SearchRootHelper(char id, int ply_depth, char side) {
 
         legal_moves++;
 
-        //printf("\n|Move=%d|Score=%d|Alpha=%d|Type=%d|Source=%d|Target=%d|MoveScore=%d|", i, score, alpha, ascii_pieces[type], source, target, move.score);
-
         if (score > alpha) {
             alpha = score;
-            globals[id].search_result.move = move;
-            //printf(" >> NEW BEST MOVE");
-        }
+            globals[id].search_result.final_move = move;
+            globals[id].search_result.final_score = score;
+            globals[id].search_result.final_move_key = move_key;
 
-        //load_bar();
+            HandlePVMove(id, 0, move);
+        }
     }
 
     globals[id].ordered_moves[ply_depth-1].Clear();
 
-    //printf("\n");
+    globals[id].search_result.final_depth = ply_depth;
+
+    if (legal_moves == 0) // we don't have any legal moves to make in the current postion
+        globals[id].search_result.flag = (in_check) ? CHECKMATE : STALEMATE;
+    else if (IsDrawnGame(globals[id].search_result.final_move, globals[id].search_result.final_move_key))
+        globals[id].search_result.flag = DRAW_GAME;
+    else
+        globals[id].search_result.flag = FOUND_MOVE;
+    
+}
+
+static inline void IterativeDeepening(char id, int ply_depth, char side) {
+    int alpha = -INF;
+    int beta = INF;
+    int current_depth = 1;
+    for (; current_depth <= ply_depth; current_depth++) {
+        if (StopGame(id))
+            break;
+
+        Negamax(id, current_depth, side, alpha, beta);
+    }
 
     mtx.lock();
-    if (!thread_stopped) {
-        long final_move = globals[id].search_result.move.encoding;
-        U64 final_move_key = GetTTKey(start_key, get_move_side(final_move), 
-            (get_move_side(final_move) * 6) + get_move_piece(final_move), 
-            get_move_capture(final_move), get_move_source(final_move), 
-            get_move_target(final_move));
-
-        if (legal_moves == 0) // we don't have any legal moves to make in the current postion
-            globals[id].search_result.flag = (in_check) ? CHECKMATE : STALEMATE;
-        else if (IsDrawnGame(final_move, final_move_key))
-            globals[id].search_result.flag = DRAW_GAME;
-        else
-            globals[id].search_result.flag = FOUND_MOVE;
-        
-        globals[id].search_result.final_score = score;
-        thread_stopped = true;
+    if (!THREAD_STOPPED) {
+        THREAD_STOPPED = true;
         AVERAGE_SEARCH_TIME += GetTimePassed();
     }
     mtx.unlock();
+
 }
 
-static inline SearchResult SearchRoot(int ply_depth, char side) {
+static inline SearchResult FindBestMove(char side) {
     StartTimer();
 
     SearchResult best_result;
     vector<thread> threads;
     threads.reserve(MAX_THREADS);
+    int ply_depth = DEPTH;
 
     //Reset global values
     for (int id = 0; id < MAX_THREADS; id++) {
@@ -2584,6 +2627,8 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
         globals[id].NODES_SEARCHED = 0;
         memset(globals[id].killer_moves, 0, sizeof(globals[id].killer_moves));
         memset(globals[id].history_moves, 0, sizeof(globals[id].history_moves));
+        memset(globals[id].pv_table, 0, sizeof(globals[id].pv_table));
+        memset(globals[id].pv_length, 0, sizeof(globals[id].pv_length));
         globals[id].search_result.Clear();
         globals[id].search_result.thread_id = id;
     }
@@ -2591,7 +2636,7 @@ static inline SearchResult SearchRoot(int ply_depth, char side) {
     //Generate Threads
     for (int id = 0; id < MAX_THREADS; id++) {
         threads.emplace_back([id, ply_depth, side]{
-            SearchRootHelper(id, ply_depth, side);
+            IterativeDeepening(id, ply_depth, side);
         });
     }
 
@@ -2663,8 +2708,6 @@ void TestBitBoards() {
         if (block >= max) block = 0;
         cout << ">> " << block;
         getline(cin, response);
-        //bits =
-        //print_bitboard(bits);
         printf("white: %d, black: %d", position_scores[T][block], position_scores[T][mirror_score[block]]);
         block++;
     }
@@ -2708,7 +2751,6 @@ void SelfPlay() {
     char log_only = 0;
 
     SearchResult search_result;
-    Move move;
     char type, capture, promotion, side; int source, target;
     U64 move_key;
 
@@ -2738,16 +2780,14 @@ void SelfPlay() {
 
         if (!log_only) printf(">> Generating Moves for %s...\n", (SIDE) ? "BLACK" : "WHITE" );
 
-        search_result = SearchRoot(DEPTH, SIDE);
-        move = search_result.move;
+        search_result = FindBestMove(SIDE);
 
-        source = get_move_source(move.encoding);
-        target = get_move_target(move.encoding);
-        type = get_move_piece(move.encoding);
-        capture = get_move_capture(move.encoding);
-        promotion = get_move_promotion(move.encoding);
-        side = get_move_side(move.encoding);
-        move_key = GetTTKey(BuildTranspositionKey(), side, (side * 6) + type, capture, source, target);
+        source = get_move_source(search_result.final_move);
+        target = get_move_target(search_result.final_move);
+        type = get_move_piece(search_result.final_move);
+        capture = get_move_capture(search_result.final_move);
+        promotion = get_move_promotion(search_result.final_move);
+        side = get_move_side(search_result.final_move);
 
         //Get length of search, for testing purposes
         search_time = GetTimePassed();
@@ -2776,13 +2816,13 @@ void SelfPlay() {
         }
 
         //Print out testing/logging info
-        printf("[Turn=%d|Depth=%d|QDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n",
-                TURN, DEPTH, QDEPTH, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
-                search_result.final_score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (stop_game) ? " >> TIMEOUT" : "");
+        printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|PVCount=%d|Time=%s]%s\n",
+                TURN, DEPTH, QDEPTH, search_result.final_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
+                search_result.final_score, search_result.thread_id, NODES_SEARCHED, PV_COUNTER, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
 
-
+        PV_COUNTER = 0;
         //Switch sides and readjust key variables
-        SwitchTurnValues(move_key);
+        SwitchTurnValues(search_result.final_move_key);
     }
 }
 
@@ -2872,16 +2912,37 @@ extern "C"
     }
 
     DllExport long Search(int side) {
-        SearchResult search_result = SearchRoot(DEPTH, side);
+        SearchResult search_result = FindBestMove(side);
         if (search_result.flag == CHECKMATE) return CHECKMATE;
         else if (search_result.flag == STALEMATE) return STALEMATE;
         else if (search_result.flag == DRAW_GAME) return DRAW_GAME;
         
-        return search_result.move.encoding;
+        return search_result.final_move;
     }
 
     DllExport int CountPieces(int side, int type) {
         return Count(Bitboards[(side * 6) + type]);
+    }
+
+    DllExport int GetMaxDepth() {
+        return MAX_DEPTH;
+    }
+
+    DllExport int GetSearchDepth() {
+        return DEPTH;
+    }
+
+    DllExport int GetMaxQDepth() {
+        return MAX_QDEPTH;
+    }
+
+    DllExport int GetQDepth() {
+        return QDEPTH;
+    }
+
+    DllExport void SetDepths(int depth, int qdepth) {
+        DEPTH = depth;
+        QDEPTH = qdepth;
     }
 
     DllExport U64 GetBitboard(int side, int type, int index) {
@@ -2989,6 +3050,7 @@ extern "C"
 * Y Implement Search Timeout
 * X Implement multi-thread searching during player's turn
 * X Transfer code to Unity
+* N Iterative Deepening
 */
 int main() {
 
