@@ -2590,15 +2590,27 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
     
 }
 
-static inline void IterativeDeepening(char id, int ply_depth, char side) {
+static inline void IterativeDeepening(char id, int ply_depth, int initial_depth, char side) {
     int alpha = -INF;
     int beta = INF;
-    int current_depth = 1;
-    for (; current_depth <= ply_depth; current_depth++) {
+    int score = 0;
+    
+    for (int current_depth = initial_depth; current_depth <= ply_depth; current_depth++) {
         if (StopGame(id))
             break;
 
         Negamax(id, current_depth, side, alpha, beta);
+        score = globals[id].search_result.final_score;
+
+        if (score <= alpha || score >= beta) { // score is outside window
+           alpha = -INF;
+           beta = INF;
+           continue; 
+        }
+
+        //Alter aspiration windows
+        alpha = score - 10;
+        beta = score + 10;
     }
 
     mtx.lock();
@@ -2634,11 +2646,13 @@ static inline SearchResult FindBestMove(char side) {
     }
 
     //Generate Threads
+    int initial_depth = 1;
     for (int id = 0; id < MAX_THREADS; id++) {
-        threads.emplace_back([id, ply_depth, side]{
-            IterativeDeepening(id, ply_depth, side);
+        threads.emplace_back([id, ply_depth, initial_depth, side]{
+            IterativeDeepening(id, ply_depth, initial_depth, side);
         });
     }
+
 
     for (int id = 0; id < MAX_THREADS; id++) {
         threads[id].join();
@@ -2769,8 +2783,9 @@ void SelfPlay() {
         
         if (!response.compare("exit")) break;
         if (!response.compare("-l")) log_only = 1; //Makes only the log line show
+        if (!response.compare("-a")) log_only = 0; //Makes only the log line show
         if (!response.compare("continuous")) is_continuous = 1; //Makes the game keep going without my input
-        if (!response.compare("continuous -l")) {is_continuous = 1; log_only = 1;}
+        if (!response.compare("log") || !response.compare("continuous -l")) {is_continuous = 1; log_only = 1;}
 
         if (!response.compare("new")) {
             init_variables();
@@ -3054,7 +3069,7 @@ extern "C"
 */
 int main() {
 
-    int debug = 1;
+    int debug = 0;
 
     // if debugging
     if (debug)
