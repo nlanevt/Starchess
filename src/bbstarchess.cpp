@@ -88,7 +88,6 @@ const char DRAW_GAME = 102;
 const char NO_CAPTURE = 6;
 const char NO_DIR = 19;
 
-//const int MATE_SCORE = 48000;
 const int MATE_VALUE = 49000;
 const int DRAW_VALUE = 0;
 const int INF = 50000;
@@ -418,8 +417,8 @@ Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
-const int MAX_DEPTH = 12;
-const int MAX_QDEPTH = 12;
+const int MAX_DEPTH = 12; //12
+const int MAX_QDEPTH = 12; //12
 int DEPTH = MAX_DEPTH; //8
 int QDEPTH = MAX_QDEPTH; //12
 
@@ -1711,8 +1710,7 @@ static int mvv_lva[12][12] = {
 };
 
 inline int Evaluation(char id, char side, bool in_check) {
-    int score, block, count;
-    Int343 bitboard; Int343 moves;
+    int score, block; Int343 bitboard; Int343 moves;
 
     score = 0;
     if (in_check) score += (side == white) ? -70 : 70; //Add points for check
@@ -2237,7 +2235,7 @@ const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
 const int futility_margin[5] = {0, 100, 320, 500, 10000};
 //const long long TIME_LIMIT = 15000000; //15 seconds
-const long long TIME_LIMIT = 4000000;
+const long long TIME_LIMIT = 4000000; //4 seconds
 
 long NODES_SEARCHED = 0; //GLOBAL
 int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends. //GLOBAL
@@ -2766,7 +2764,6 @@ void SelfPlay() {
 
     SearchResult search_result;
     char type, capture, promotion, side; int source, target;
-    U64 move_key;
 
     PrintTitle();
 
@@ -3044,7 +3041,7 @@ extern "C"
 * Y Implement Null Move
 * Y PVS Searching
 * Y PV Node Check
-* N PV Move Ordering
+* Y PV Move Ordering
 * Y History Heuristic
 * Y Killer Moves
 * Y Razoring
@@ -3065,11 +3062,11 @@ extern "C"
 * Y Implement Search Timeout
 * X Implement multi-thread searching during player's turn
 * X Transfer code to Unity
-* N Iterative Deepening
+* Y Iterative Deepening
 */
 int main() {
 
-    int debug = 0;
+    int debug = 0; //0
 
     // if debugging
     if (debug)
