@@ -1037,6 +1037,8 @@ struct SearchResult {
 };
 
 const size_t MAX_THREADS = 4; //4
+size_t THREAD_COUNT = MAX_THREADS;
+
 Global globals[MAX_THREADS]; //GLOBAL
 
 // encode move
@@ -1741,11 +1743,9 @@ inline int Evaluation(char id, char side, bool in_check) {
     return score;
 }
 
-int PV_COUNTER = 0;
 static inline int ScoreMove(char id, int total_depth, int ply_depth, long move, char side, char type, char capture, char promotion, int target) {
     //If PV Move
     if (globals[id].pv_table[0][total_depth - ply_depth] == move && move != 0) {
-        PV_COUNTER++;
         return 20000;
     }
     else if (IsCapture(capture)) {
@@ -1978,7 +1978,7 @@ inline bool is_block_attacked(char id, int block, char side) {
 
 #define IsInCheck(id, side, type, target, sphere_source)  ((type != S) ? is_block_attacked(id, sphere_source, !side) : is_block_attacked(id, target, !side))
 
-static inline int GetOrderValue(char type) {
+/*static inline int GetOrderValue(char type) {
     switch (type) {
         case NO_ORDER:
             return 0;
@@ -1989,7 +1989,7 @@ static inline int GetOrderValue(char type) {
     }
 
     return 0;
-}
+}*/
 
 static inline void GenerateMoves(char id, int total_depth, int depth, char side) {
     int source, target, score;
@@ -2149,7 +2149,7 @@ static inline void GenerateCaptures(char id, int depth, char side) {
     }
 }
 
-static inline void GenerateMovesOther(char id, int depth, char side, char order_type) {
+/*static inline void GenerateMovesOther(char id, int depth, char side, char order_type) {
     int source, target;
     char capture;
     Int343 piece_set; Int343 moves;
@@ -2221,7 +2221,7 @@ static inline void GenerateMovesOther(char id, int depth, char side, char order_
         order_value = GetOrderValue(order_type);
         globals[id].ordered_moves[depth - 1].Add({encode_move(source, target, S, capture, 0, side), order_value});
     }
-}
+}*/
 
 /**********************************\
  ==================================
@@ -2625,11 +2625,11 @@ static inline SearchResult FindBestMove(char side) {
 
     SearchResult best_result;
     vector<thread> threads;
-    threads.reserve(MAX_THREADS);
+    threads.reserve(THREAD_COUNT);
     int ply_depth = DEPTH;
 
     //Reset global values
-    for (int id = 0; id < MAX_THREADS; id++) {
+    for (int id = 0; id < THREAD_COUNT; id++) {
         for (int i = 0; i < 12; i++) globals[id].Bitboards[i] = Bitboards[i];
         for (int i = 0; i < 3; i++) globals[id].Occupancies[i] = Occupancies[i];
         for (int depth = 0; depth < DEPTH; depth++) globals[id].ordered_moves[depth].Clear();
@@ -2645,18 +2645,18 @@ static inline SearchResult FindBestMove(char side) {
 
     //Generate Threads
     int initial_depth = 1;
-    for (int id = 0; id < MAX_THREADS; id++) {
+    for (int id = 0; id < THREAD_COUNT; id++) {
         threads.emplace_back([id, ply_depth, initial_depth, side]{
             IterativeDeepening(id, ply_depth, initial_depth, side);
         });
     }
 
 
-    for (int id = 0; id < MAX_THREADS; id++) {
+    for (int id = 0; id < THREAD_COUNT; id++) {
         threads[id].join();
     }
 
-    for (int id = 0; id < MAX_THREADS; id++) {
+    for (int id = 0; id < THREAD_COUNT; id++) {
         //printf("thread %d nodes searched: %ld\n", id, globals[id].NODES_SEARCHED);
         NODES_SEARCHED += globals[id].NODES_SEARCHED;
         if (globals[id].search_result.flag != NO_MOVE) {
@@ -2740,7 +2740,7 @@ void PrintTitle() {
             "==================================\n" <<
             "**********************************\n";
     cout << "Depth = " << DEPTH << " | QDepth = " << QDEPTH << "\n";
-    cout << "Thread Count = " << MAX_THREADS << "\n";
+    cout << "Thread Count = " << THREAD_COUNT << "\n";
     cout << "Timeout = " << GetTimeStampString(TIME_LIMIT) << "\n";
 }
 
@@ -2828,11 +2828,10 @@ void SelfPlay() {
         }
 
         //Print out testing/logging info
-        printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|PVCount=%d|Time=%s]%s\n",
+        printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n",
                 TURN, DEPTH, QDEPTH, search_result.final_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
-                search_result.final_score, search_result.thread_id, NODES_SEARCHED, PV_COUNTER, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
+                search_result.final_score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
 
-        PV_COUNTER = 0;
         //Switch sides and readjust key variables
         SwitchTurnValues(search_result.final_move_key);
     }
@@ -2956,6 +2955,15 @@ extern "C"
         DEPTH = depth;
         QDEPTH = qdepth;
     }
+
+    DllExport size_t GetThreadCount() {
+        return THREAD_COUNT;
+    }
+
+    DllExport void SetThreadCount(size_t thread_count) {
+        THREAD_COUNT = (thread_count <= MAX_THREADS) ? thread_count : MAX_THREADS;
+    }
+
 
     DllExport U64 GetBitboard(int side, int type, int index) {
         if (index >= 6 || type >= 6) return 0ULL;
