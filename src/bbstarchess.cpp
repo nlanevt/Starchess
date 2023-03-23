@@ -1712,33 +1712,50 @@ static int mvv_lva[12][12] = {
 };
 
 inline int Evaluation(char id, char side, bool in_check) {
-    int score, block; Int343 bitboard; Int343 moves;
+    int score, block, total_count, icosa_count; Int343 bitboard; Int343 moves;
 
     score = 0;
-    if (in_check) score += (side == white) ? -70 : 70; //Add points for check
+    total_count = 0;
+
+    //if (in_check) score += (side == white) ? -70 : 70; //Add points for check
     score += (side == white) ? 10 : -10; //Add points for tempo
 
-    //Add white scores
+    //Add white scores --------------------------------------------------------------------------------------------------------------------
     bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {
-        score += material_score[T]; score += position_scores[T][block];
+        score += material_score[T]; score += position_scores[T][block]; total_count++;
         /*score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0; */
     }
-    bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block]; }
-    bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; }
-    bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; }
-    score += (Count(globals[id].Bitboards[I]) * material_score[I]); //Add the White Icosa material scores
-    bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
+    bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block]; total_count++;}
+    bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; total_count++;}
+    bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; total_count++;}
+    icosa_count = Count(globals[id].Bitboards[I]);
+    total_count += icosa_count;
+    score += (icosa_count * material_score[I]); //Add the White Icosa material scores
+    
+    bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; total_count++;}
 
-    //Subtract black scores (material_score contains negative values)
+    //Subtract black scores (material_score contains negative values) ----------------------------------------------------------------------
     bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) {
-        score += material_score[t]; score -= position_scores[T][mirror_score[block]];
+        score += material_score[t]; score -= position_scores[T][mirror_score[block]]; total_count++;
         //score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
     }
-    bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; }
-    bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; }
-    bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; }
-    score += (Count(globals[id].Bitboards[i]) * material_score[i]); //Add the Black Icosa material scores
-    bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; }
+    bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; total_count++;}
+    bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; total_count++;}
+    bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; total_count++;}
+    icosa_count = Count(globals[id].Bitboards[i]);
+    total_count += icosa_count;
+    score += (icosa_count * material_score[i]); //Add the Black Icosa material scores
+    
+    bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; total_count++;}
+
+    if (in_check) {
+        if (80 > total_count && total_count >= 60)
+            score += (side == white) ? -20 : 20;
+        else if (60 > total_count && total_count >= 40)
+            score += (side == white) ? -50 : 50;
+        else if (40 > total_count)
+            score += (side == white) ? -75 : 75;
+    }
 
     return score;
 }
@@ -2293,11 +2310,12 @@ inline int FutilityMoveCount(bool improving, int depth) {
                      : (9 + depth * depth) / 2;
 }
 
-static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
+static inline int QSearch(char id, int ply_depth, char side, U64 prev_key, int alpha, int beta) {
     int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
     int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side)) * ((!side) ? 1 : -1);
 
     if (ply_depth <= 0 || THREAD_STOPPED || TIMEOUT_STOPPED) return score;
+    if (score < alpha + 1000) //Delta pruning
     if (score >= beta) return beta;
     if (score > alpha) alpha = score;
 
@@ -2337,7 +2355,7 @@ static inline int Quiescence(char id, int ply_depth, char side, U64 prev_key, in
                 continue;
             }
 
-            score = -Quiescence(id, ply_depth-1, !side, move_key, -beta, -alpha);
+            score = -QSearch(id, ply_depth-1, !side, move_key, -beta, -alpha);
 
             ReverseMove(id, side, type, capture, promotion, source, target);
 
@@ -2368,7 +2386,7 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, char side, 
     int ply = (ply_depth >= 0) ? total_depth - ply_depth : total_depth-1;
     globals[id].pv_length[ply] = ply;
 
-    if (ply_depth <= 0 || StopGame(id)) return Quiescence(id, QDEPTH, side, prev_key, alpha, beta);
+    if (ply_depth <= 0 || StopGame(id)) return QSearch(id, QDEPTH, side, prev_key, alpha, beta);
 
     globals[id].NODES_SEARCHED++;
 
@@ -2387,7 +2405,7 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, char side, 
     if (!in_check && !pvNode) {
         //Razoring
         if (static_eval < alpha - 426 - 252 * ply_depth * ply_depth) { //Use 600 instead
-            score = Quiescence(id, QDEPTH, side, prev_key, alpha - 1, alpha);
+            score = QSearch(id, QDEPTH, side, prev_key, alpha - 1, alpha);
             if (score < alpha)
                 return score;
         }
@@ -2412,7 +2430,7 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, char side, 
             if (ply_depth >= 3)
                 score = -SubSearch(id, total_depth, ply_depth - 3, !side, prev_key, false, p_move, p_eval, static_eval, -beta, -beta + 1);
             else
-                score = -Quiescence(id, QDEPTH, !side, prev_key, -beta, -beta + 1);
+                score = -QSearch(id, QDEPTH, !side, prev_key, -beta, -beta + 1);
             
             if (score >= beta)
                 return beta;
@@ -2978,6 +2996,14 @@ extern "C"
     DllExport int GetBBCapture(int side, int target) {
         SetGlobalBitBoards();
         return GetCapture(0, side, target);
+    }
+
+    DllExport bool CheckDrawnGame() {
+        //Insufficient Material
+        if (IsInsufficientMaterial()) 
+            return true;
+        
+        return false;
     }
 
     DllExport bool IsSphereInCheck(int side) {
