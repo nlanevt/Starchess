@@ -1896,71 +1896,73 @@ bool IsDrawnGame(long move, U64 move_key) {
 }
 
 //Used by UI and SelfPlay
-//TODO: Replace all uses of this method in this code with MakeKnownMove. This method is redundant
-inline int MakeMove(char side, int attacker, int src_block, int dst_block) {
-    if (attacker != T || !IsPromotion(side, dst_block)) {
-        PopBit(Bitboards[(side*6) + attacker], src_block);
-        SetBit(Bitboards[(side*6) + attacker], dst_block);
+//Directly alters the global bitboards
+inline int MakeRealMove(char side, int attacker, int source, int target) {
+    if (attacker != T || !IsPromotion(side, target)) {
+        PopBit(Bitboards[(side*6) + attacker], source);
+        SetBit(Bitboards[(side*6) + attacker], target);
     }
     else {
-        PopBit(Bitboards[(side*6) + T], src_block); //Remove tetra from side at source
-        SetBit(Bitboards[(side*6) + I], dst_block); //Add icosa to side at target
+        PopBit(Bitboards[(side*6) + T], source); //Remove tetra from side at source
+        SetBit(Bitboards[(side*6) + I], target); //Add icosa to side at target
     }
     
-    PopBit(Occupancies[side], src_block);
-    SetBit(Occupancies[side], dst_block);
-    PopBit(Occupancies[both], src_block);
-    SetBit(Occupancies[both], dst_block);
+    PopBit(Occupancies[side], source);
+    SetBit(Occupancies[side], target);
+    PopBit(Occupancies[both], source);
+    SetBit(Occupancies[both], target);
 
     for (int type = 0; type < 6; type++) {
-        if (GetBit(Bitboards[((!side)*6) + type], dst_block)) {
-            PopBit(Bitboards[((!side)*6) + type], dst_block);
-            PopBit(Occupancies[!side], dst_block);
+        if (GetBit(Bitboards[((!side)*6) + type], target)) {
+            PopBit(Bitboards[((!side)*6) + type], target);
+            PopBit(Occupancies[!side], target);
             return type;
         }
     }
     return 6;
 }
 
-inline void MakeKnownMove(char id, char side, int attacker, char capture, char promotion, int src_block, int dst_block) {
+//Used by engine
+//Alters the threaded bitboards
+inline void MakeKnownMove(char id, char side, int attacker, char capture, char promotion, int source, int target) {
     if (!promotion) {
-        PopBit(globals[id].Bitboards[(side*6) + attacker], src_block);
-        SetBit(globals[id].Bitboards[(side*6) + attacker], dst_block);
+        PopBit(globals[id].Bitboards[(side*6) + attacker], source);
+        SetBit(globals[id].Bitboards[(side*6) + attacker], target);
     }
     else {
-        PopBit(globals[id].Bitboards[(side*6) + T], src_block); //Remove tetra from side at source
-        SetBit(globals[id].Bitboards[(side*6) + I], dst_block); //Add icosa to side at target
+        PopBit(globals[id].Bitboards[(side*6) + T], source); //Remove tetra from side at source
+        SetBit(globals[id].Bitboards[(side*6) + I], target); //Add icosa to side at target
     }
     
-    PopBit(globals[id].Occupancies[side], src_block);
-    SetBit(globals[id].Occupancies[side], dst_block);
-    PopBit(globals[id].Occupancies[both], src_block);
-    SetBit(globals[id].Occupancies[both], dst_block);
+    PopBit(globals[id].Occupancies[side], source);
+    SetBit(globals[id].Occupancies[side], target);
+    PopBit(globals[id].Occupancies[both], source);
+    SetBit(globals[id].Occupancies[both], target);
 
     if (IsCapture(capture)) {
-        PopBit(globals[id].Bitboards[((!side)*6) + capture], dst_block);
-        PopBit(globals[id].Occupancies[!side], dst_block);
+        PopBit(globals[id].Bitboards[((!side)*6) + capture], target);
+        PopBit(globals[id].Occupancies[!side], target);
     }
 }
 
-inline void ReverseMove(char id, char side, int attacker, char capture, char promotion, int src_block, int dst_block) {
+inline void ReverseMove(char id, char side, int attacker, char capture, char promotion, int source, int target) {
     if (!promotion) {
-        PopBit(globals[id].Bitboards[(side*6) + attacker], dst_block);
-        SetBit(globals[id].Bitboards[(side*6) + attacker], src_block);
+        PopBit(globals[id].Bitboards[(side*6) + attacker], target);
+        SetBit(globals[id].Bitboards[(side*6) + attacker], source);
     }
     else {
-        PopBit(globals[id].Bitboards[(side*6) + I], dst_block); //Remove icosa from target
-        SetBit(globals[id].Bitboards[(side*6) + T], src_block); //Add tetra to source
+        PopBit(globals[id].Bitboards[(side*6) + I], target); //Remove icosa from target
+        SetBit(globals[id].Bitboards[(side*6) + T], source); //Add tetra to source
     }
     
-    PopBit(globals[id].Occupancies[side], dst_block);
-    SetBit(globals[id].Occupancies[side], src_block);
-    PopBit(globals[id].Occupancies[both], dst_block);
-    SetBit(globals[id].Occupancies[both], src_block);
+    PopBit(globals[id].Occupancies[side], target);
+    SetBit(globals[id].Occupancies[side], source);
+    PopBit(globals[id].Occupancies[both], target);
+    SetBit(globals[id].Occupancies[both], source);
     if (IsCapture(capture)) {
-        SetBit(globals[id].Bitboards[((!side)*6) + capture], dst_block);
-        SetBit(globals[id].Occupancies[!side], dst_block);
-        SetBit(globals[id].Occupancies[both], dst_block);
+        SetBit(globals[id].Bitboards[((!side)*6) + capture], target);
+        SetBit(globals[id].Occupancies[!side], target);
+        SetBit(globals[id].Occupancies[both], target);
     }
 }
 
@@ -2782,6 +2784,7 @@ void SelfPlay() {
 
     SearchResult search_result;
     char type, capture, promotion, side; int source, target;
+    bool new_game = false;
 
     PrintTitle();
 
@@ -2802,9 +2805,11 @@ void SelfPlay() {
         if (!response.compare("continuous")) is_continuous = 1; //Makes the game keep going without my input
         if (!response.compare("log") || !response.compare("continuous -l")) {is_continuous = 1; log_only = 1;}
 
-        if (!response.compare("new")) {
+        if (!response.compare("new") || new_game) {
             init_variables();
             init_bitboards((char *)START_POSITION);
+            new_game = false;
+            printf("NEW GAME\n");
             continue;
         }
 
@@ -2823,32 +2828,34 @@ void SelfPlay() {
         search_time = GetTimePassed();
         if (search_time > MAX_SEARCH_TIME) MAX_SEARCH_TIME = search_time;
 
-        if (search_result.flag == CHECKMATE) {
-            printf("CHECKMATE!\n");
-            if (SIDE == white) printf("BLACK WON!\n");
-            else printf("WHITE WON!\n");
-            PrintEndGameMetrics(false);
-            is_continuous = 0;
-        }
-        else if (search_result.flag == STALEMATE) {
-            printf("STALEMATE!\nGAME OVER!\n");
-            PrintEndGameMetrics(false);
-            is_continuous = 0;
-        }
-        else if (search_result.flag == DRAW_GAME) {
-            printf("DRAW!\nGAME OVER!\n");
-            PrintEndGameMetrics(false);
-            is_continuous = 0;
-        }
-        else {
-            if (!log_only) printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
-            MakeMove(SIDE, type, source, target); //Make the move just searched, if not a checkmate/stalemate
-        }
-
         //Print out testing/logging info
         printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n",
                 TURN, DEPTH, QDEPTH, search_result.final_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
                 search_result.final_score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
+
+        if (search_result.flag == CHECKMATE) {
+            printf("CHECKMATE!\n");
+            if (SIDE == white) printf("BLACK WON!\n");
+            else printf("WHITE WON!\n");
+        }
+        else if (search_result.flag == STALEMATE) {
+            printf("STALEMATE!\nGAME OVER!\n");
+        }
+        else if (search_result.flag == DRAW_GAME) {
+            printf("DRAW!\nGAME OVER!\n");
+        }
+        else {
+            if (!log_only) printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
+            MakeRealMove(SIDE, type, source, target); //Make the move just searched, if not a checkmate/stalemate
+        }
+
+        if (search_result.flag == CHECKMATE || 
+            search_result.flag == STALEMATE ||
+            search_result.flag == DRAW_GAME) {
+            PrintEndGameMetrics(false);
+            is_continuous = 0;
+            new_game = true;
+        }
 
         //Switch sides and readjust key variables
         SwitchTurnValues(search_result.final_move_key);
@@ -2936,7 +2943,7 @@ extern "C"
 
     DllExport void MakeBBMove(int side, int type, int source, int target) {
         U64 start_key = BuildTranspositionKey();
-        char capture = MakeMove(side, type, source, target);
+        char capture = MakeRealMove(side, type, source, target);
         SwitchTurnValues(GetTTKey(start_key, side, (side * 6) + type, capture, source, target));
     }
 
@@ -3002,7 +3009,7 @@ extern "C"
         //Insufficient Material
         if (IsInsufficientMaterial()) 
             return true;
-        
+
         return false;
     }
 
