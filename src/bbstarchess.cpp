@@ -1712,50 +1712,45 @@ static int mvv_lva[12][12] = {
 };
 
 inline int Evaluation(char id, char side, bool in_check) {
-    int score, block, total_count, icosa_count; Int343 bitboard; Int343 moves;
-
-    score = 0;
-    total_count = 0;
+    int block, score = 0; Int343 bitboard; Int343 moves;
+    int total_count = Count(globals[id].Occupancies[both]);
 
     //if (in_check) score += (side == white) ? -70 : 70; //Add points for check
-    score += (side == white) ? 10 : -10; //Add points for tempo
-
-    //Add white scores --------------------------------------------------------------------------------------------------------------------
-    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {
-        score += material_score[T]; score += position_scores[T][block]; total_count++;
-        /*score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0; */
-    }
-    bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block]; total_count++;}
-    bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; total_count++;}
-    bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; total_count++;}
-    icosa_count = Count(globals[id].Bitboards[I]);
-    total_count += icosa_count;
-    score += (icosa_count * material_score[I]); //Add the White Icosa material scores
-    
-    bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; total_count++;}
-
-    //Subtract black scores (material_score contains negative values) ----------------------------------------------------------------------
-    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) {
-        score += material_score[t]; score -= position_scores[T][mirror_score[block]]; total_count++;
-        //score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
-    }
-    bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; total_count++;}
-    bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; total_count++;}
-    bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; total_count++;}
-    icosa_count = Count(globals[id].Bitboards[i]);
-    total_count += icosa_count;
-    score += (icosa_count * material_score[i]); //Add the Black Icosa material scores
-    
-    bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; total_count++;}
+    if (total_count > 60)
+        score += (side == white) ? 10 : -10; //Add points for tempo
+    else
+        score += (side == white) ? 3 : -3; //Add points for tempo
 
     if (in_check) {
         if (80 > total_count && total_count >= 60)
-            score += (side == white) ? -20 : 20;
+            score += (side == white) ? -10 : 10;
         else if (60 > total_count && total_count >= 40)
-            score += (side == white) ? -50 : 50;
+            score += (side == white) ? -20 : 20;
         else if (40 > total_count)
-            score += (side == white) ? -75 : 75;
+            score += (side == white) ? -40 : 40;
     }
+
+    //Add white scores --------------------------------------------------------------------------------------------------------------------
+    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {
+        score += material_score[T]; score += position_scores[T][block];
+        /*score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0; */
+    }
+    bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block];}
+    bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; }
+    bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; }
+    score += (Count(globals[id].Bitboards[I]) * material_score[I]); //Add the White Icosa material scores
+    bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
+
+    //Subtract black scores (material_score contains negative values) ----------------------------------------------------------------------
+    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) {
+        score += material_score[t]; score -= position_scores[T][mirror_score[block]]; 
+        //score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
+    }
+    bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; }
+    bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; }
+    bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; }
+    score += (Count(globals[id].Bitboards[i]) * material_score[i]); //Add the Black Icosa material scores
+    bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; }
 
     return score;
 }
@@ -2809,7 +2804,7 @@ void SelfPlay() {
             init_variables();
             init_bitboards((char *)START_POSITION);
             new_game = false;
-            printf("NEW GAME\n");
+            printf("\nNEW GAME\n");
             continue;
         }
 
@@ -2829,9 +2824,9 @@ void SelfPlay() {
         if (search_time > MAX_SEARCH_TIME) MAX_SEARCH_TIME = search_time;
 
         //Print out testing/logging info
-        printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|NodesSearched=%ld|Time=%s]%s\n",
+        printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|PiecesLeft=%d|NodesSearched=%ld|Time=%s]%s\n",
                 TURN, DEPTH, QDEPTH, search_result.final_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
-                search_result.final_score, search_result.thread_id, NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
+                search_result.final_score, search_result.thread_id, Count(Occupancies[both]), NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
 
         if (search_result.flag == CHECKMATE) {
             printf("CHECKMATE!\n");
