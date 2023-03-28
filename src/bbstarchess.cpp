@@ -1035,8 +1035,6 @@ struct SearchResult {
     long pv_table[MAX_DEPTH][MAX_DEPTH]; // PV table [ply][ply]
 };
 
-const int EXTENSION_LIMIT = 10; //This is per move at root
-
 const size_t MAX_THREADS = 4; //4
 size_t THREAD_COUNT = MAX_THREADS;
 
@@ -2162,9 +2160,12 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
 
 const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
-const int futility_margin[5] = {0, 100, 320, 500, 10000};
+const int futility_margin[6] = {0, 100, 320, 500, 1000, 1320}; //TODO: May need adjusting/refactoring
+const int HistoryThreshold = 10000;
 //const long long TIME_LIMIT = 15000000; //15 seconds
+//const long long TIME_LIMIT = 4000000; //4 seconds
 const long long TIME_LIMIT = 4000000; //4 seconds
+
 
 long NODES_SEARCHED = 0; //GLOBAL
 int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends. //GLOBAL
@@ -2297,7 +2298,6 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
 //pp_eval = static eval from this sides last turn, so the turn before the last turn
 //p_eval = static eval from the last turn, so the opponents turn that led to this one.
 //p_move = previous move.encoding that caused this search
-int EXTENSION_COUNT = 0;
 static inline int SubSearch(char id, int total_depth, int ply_depth, int list_index, char side, U64 prev_key, bool null_move, long p_move, int pp_eval, int p_eval, int alpha, int beta) {
      if (ABORT_GAME) return 0;
 
@@ -2336,6 +2336,11 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
             return static_eval;
         }
 
+        if (ply_depth < 10 && 
+            static_eval + 103 + 138 * ply_depth <= alpha) {
+            return alpha;
+        }
+
         //Static Evaluation - Doesn't do much - Here for reference
         /*if (ply_depth < 3 && !pvNode && !in_check && abs(beta - 1) > -INF + 100) {   
             int eval_margin = 120 * ply_depth;
@@ -2364,10 +2369,10 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
         }*/
     }
 
+    GenerateMoves(id, list_index, side);
+
     int extensions = 0;
     if (in_check) extensions = 1;
-
-    GenerateMoves(id, list_index, side);
 
     char type, capture, promotion; int source, target; long move; U64 move_key; TTEntry *tt_entry;
     int legal_moves = 0;
@@ -2391,13 +2396,17 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
             promotion = get_move_promotion(move);
 
             //Early Pruning
-            if (!in_check && promotion == 0) {
+            if (!in_check && legal_moves > 0 && promotion == 0) {
                 //Move Count Pruning, only for non-tetra quiet moves, when legal moves is over futility count
                 if (!IsCapture(capture) && legal_moves >= futility_move_count && type != T) continue;
 
                 //Futility Pruning
-                if (ply_depth <= 5 && legal_moves > 0) {
-                    if (!IsCapture(capture) && static_eval + futility_margin[ply_depth] <= alpha) continue; //Quiet Moves
+                if (!pvNode && ply_depth <= 5) {
+                    if (!IsCapture(capture)) {
+                        if (static_eval + futility_margin[ply_depth] <= alpha) continue; //Quiet Moves
+                        if (ply_depth < 5 && type != T && globals[id].history_moves[(side * 6) + type][target] <= (HistoryThreshold / ply_depth)) continue; //History Pruning
+                    }
+
                     if (IsCapture(capture) && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
                 }
             }
@@ -2408,6 +2417,13 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
                 ReverseMove(id, side, type, capture, promotion, source, target);
                 continue;
             }
+
+            //Attempt at Recapture extension; Not enabled
+            /*extensions = 0;
+            if ((pvNode && IsCapture(capture) && IsCapture(get_move_capture(p_move)) && target == get_move_target(p_move)) ||
+                (in_check)) {
+                extensions = 1;
+            } */
 
             if (legal_moves == 0) {//Do normal search on the first one
                 score = -SubSearch(id, total_depth, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, move, p_eval, static_eval, -beta, -alpha);
@@ -2668,6 +2684,9 @@ void TestBitBoards() {
 void PrintEndGameMetrics(bool SelfPlay) {
     AVERAGE_SEARCH_TIME = (SelfPlay) ? AVERAGE_SEARCH_TIME / TURN : AVERAGE_SEARCH_TIME / (TURN / 2);
     printf("TurnCount=%d\n", TURN);
+    printf("WhitePieces=%d\n", Count(Occupancies[white]));
+    printf("BlackPieces=%d\n", Count(Occupancies[black]));
+    printf("TotalPieces=%d\n", Count(Occupancies[both]));
     printf("TimeoutCount=%d\n", TIMEOUT_COUNT); //TODO: Ensure TIMEOUT_COUNT Gets reset to 0;
     printf("AvergeSearchTime=%s\n", GetTimeStampString(AVERAGE_SEARCH_TIME).c_str());
     printf("MaxSearchTime=%s\n", GetTimeStampString(MAX_SEARCH_TIME).c_str());
@@ -2699,8 +2718,11 @@ void tokenize(string const &str, const char delim, vector<string> &out)
 void SelfPlay() {
     string response;
     long long search_time;
-    char is_continuous = 0;
-    char log_only = 0;
+    bool is_continuous = false;
+    bool log_only = false;
+    bool log_timed = false;
+    int log_counter = 0;
+    int log_max = 0;
 
     SearchResult search_result;
     char type, capture, promotion, side; int source, target;
@@ -2712,18 +2734,31 @@ void SelfPlay() {
     init_bitboards((char *)START_POSITION);
     
     while (true) {
-        if (!log_only) print_full_board();
+        if (log_timed) {
+            log_counter++;
+            if (log_counter >= log_max) {log_timed = false; is_continuous = false; log_max = 0;}
+        }
 
+        if (!log_only && !log_timed) print_full_board();
+
+        response = "";
         if (!is_continuous) {
             cout << ">> ";
             getline(cin, response);
         }
         
         if (!response.compare("exit")) break;
-        if (!response.compare("-l")) log_only = 1; //Makes only the log line show
-        if (!response.compare("-a")) log_only = 0; //Makes only the log line show
+        if (!response.compare("-l")) log_only = true; //Makes only the log line show
+        if (!response.compare("-a")) log_only = false; //Makes only the log line show
         if (!response.compare("continuous")) is_continuous = 1; //Makes the game keep going without my input
-        if (!response.compare("log") || !response.compare("continuous -l")) {is_continuous = 1; log_only = 1;}
+        if (!response.compare("log") || !response.compare("continuous -l")) {is_continuous = true; log_only = true; log_timed = false;}
+        if (!response.compare("log20")) {
+            log_only = false;
+            log_timed = true;
+            log_max = 20;
+            log_counter = 0;
+            is_continuous = true;
+        }
 
         if (!response.compare("new") || new_game) {
             init_variables();
@@ -2733,7 +2768,7 @@ void SelfPlay() {
             continue;
         }
 
-        if (!log_only) printf(">> Generating Moves for %s...\n", (SIDE) ? "BLACK" : "WHITE" );
+        if (!log_only && !log_timed) printf(">> Generating Moves for %s...\n", (SIDE) ? "BLACK" : "WHITE" );
 
         search_result = FindBestMove(SIDE);
 
@@ -2748,39 +2783,44 @@ void SelfPlay() {
         search_time = GetTimePassed();
         if (search_time > MAX_SEARCH_TIME) MAX_SEARCH_TIME = search_time;
 
-        //Print out testing/logging info
-        printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|PiecesLeft=%d|NodesSearched=%ld|Time=%s]%s\n",
-                TURN, DEPTH, QDEPTH, search_result.final_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, (IsCapture(capture)) ? ascii_pieces[capture] : 'X',
-                search_result.final_score, search_result.thread_id, Count(Occupancies[both]), NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
-
-        EXTENSION_COUNT = 0;
-
-        if (search_result.flag == CHECKMATE) {
-            printf("CHECKMATE!\n");
-            if (SIDE == white) printf("BLACK WON!\n");
-            else printf("WHITE WON!\n");
-        }
-        else if (search_result.flag == STALEMATE) {
-            printf("STALEMATE!\nGAME OVER!\n");
-        }
-        else if (search_result.flag == DRAW_GAME) {
-            printf("DRAW!\nGAME OVER!\n");
-        }
-        else {
-            if (!log_only) printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
-            MakeRealMove(SIDE, type, source, target); //Make the move just searched, if not a checkmate/stalemate
-        }
-
         if (search_result.flag == CHECKMATE || 
             search_result.flag == STALEMATE ||
             search_result.flag == DRAW_GAME) {
+
+            cout << "****************************\n" <<
+                    "============================\n";
+
+            if (search_result.flag == CHECKMATE) {
+                printf("CHECKMATE!\n");
+                if (SIDE == white) printf("BLACK WON!\n");
+                else printf("WHITE WON!\n");
+            }
+            else if (search_result.flag == STALEMATE) {
+                printf("STALEMATE!\nGAME OVER!\n");
+            }
+            else {
+                printf("DRAW!\nGAME OVER!\n");
+            }
+
             PrintEndGameMetrics(false);
+            cout << "============================\n" <<
+                    "****************************\n";
+
             is_continuous = 0;
             new_game = true;
         }
+        else {
+            //Print out testing/logging info
+            if (!log_only && !log_timed) printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
+            printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|PiecesLeft=%d|NodesSearched=%ld|Time=%s]%s\n",
+                    TURN, DEPTH, QDEPTH, search_result.final_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, 
+                    (IsCapture(capture)) ? ascii_pieces[capture] : 'X', search_result.final_score, search_result.thread_id, 
+                    Count(Occupancies[both]), NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
 
-        //Switch sides and readjust key variables
-        SwitchTurnValues(search_result.final_move_key);
+            //Make the move just searched, if not a checkmate/stalemate
+            MakeRealMove(SIDE, type, source, target); 
+            SwitchTurnValues(search_result.final_move_key); //Switch sides
+        }
     }
 }
 
