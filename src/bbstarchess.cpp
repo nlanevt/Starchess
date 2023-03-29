@@ -416,7 +416,7 @@ Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
-const int MAX_DEPTH = 12; //12
+const int MAX_DEPTH = 16; //12
 const int MAX_QDEPTH = 12; //12
 int DEPTH = MAX_DEPTH; //8
 int QDEPTH = MAX_QDEPTH; //12
@@ -1035,7 +1035,7 @@ struct SearchResult {
     long pv_table[MAX_DEPTH][MAX_DEPTH]; // PV table [ply][ply]
 };
 
-const size_t MAX_THREADS = 4; //4
+const size_t MAX_THREADS = 8; //4
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -1466,21 +1466,21 @@ const int position_scores[6][343] =
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0
 }, { // Cube Position Scores
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
 
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
-    50,  50,  50,  50,  50,  50,  50,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
+    20,  20,  20,  20,  20,  20,  20,
 
      0,   0,   0,   0,   0,   0,   0,
      0,  10,  10,  10,  10,  10,   0,
@@ -2161,7 +2161,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
 const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
 const int futility_margin[6] = {0, 100, 320, 500, 1000, 1320}; //TODO: May need adjusting/refactoring
-const int HistoryThreshold = 10000;
+//const int HistoryThreshold = 10000;
 //const long long TIME_LIMIT = 15000000; //15 seconds
 //const long long TIME_LIMIT = 4000000; //4 seconds
 const long long TIME_LIMIT = 4000000; //4 seconds
@@ -2172,10 +2172,9 @@ int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends. //GLOBAL
 long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends. //GLOBAL
 long long MAX_SEARCH_TIME = 0; //GLOBAL
 bool TIMEOUT_STOPPED = false; //GLOBAL
-bool THREAD_STOPPED = false; //GLOBAL
 bool ABORT_GAME = false;
 chrono::time_point<chrono::steady_clock> START_TIME;
-mutex mtx; //Used for locking thread when finishing search
+//mutex mtx; //Used for locking thread when finishing search
 
 void StartTimer() {
     START_TIME = chrono::steady_clock::now();
@@ -2190,16 +2189,13 @@ inline long long GetTimePassed() {
 
 //Returns true if the game needs to be stopped.
 inline bool StopGame(char id) {
-    if (THREAD_STOPPED || TIMEOUT_STOPPED || ABORT_GAME) return true;
+    if (TIMEOUT_STOPPED || ABORT_GAME) return true;
     if ((globals[id].NODES_SEARCHED & 2047) != 0) return false;
 
     long long time_passed = GetTimePassed();
     if (time_passed > TIME_LIMIT) {
-        mtx.lock();
         TIMEOUT_COUNT++;
         TIMEOUT_STOPPED = true;
-        mtx.unlock();
-
         return true;
     }
 
@@ -2209,7 +2205,6 @@ inline bool StopGame(char id) {
 void ClearTimeNodeValues() {
     NODES_SEARCHED = 0;
     TIMEOUT_STOPPED = false;
-    THREAD_STOPPED = false;
     ABORT_GAME = false;
 }
 
@@ -2227,16 +2222,15 @@ inline int FutilityMoveCount(bool improving, int depth) {
 
 static inline int QSearch(char id, int ply_depth, int list_index, char side, U64 prev_key, int alpha, int beta) {
     if (ABORT_GAME) return 0;
+    globals[id].NODES_SEARCHED++;
 
     int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
     int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side));
 
-    if (ply_depth <= 0 || THREAD_STOPPED || TIMEOUT_STOPPED || list_index >= QDEPTH) return score;
+    if (ply_depth <= 0 || TIMEOUT_STOPPED || list_index >= QDEPTH) return score;
     if (score < alpha + 1000) //Delta pruning
     if (score >= beta) return beta;
     if (score > alpha) alpha = score;
-
-    globals[id].NODES_SEARCHED++;
 
     GenerateCaptures(id, list_index, side);
 
@@ -2402,12 +2396,9 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
 
                 //Futility Pruning
                 if (!pvNode && ply_depth <= 5) {
-                    if (!IsCapture(capture)) {
-                        if (static_eval + futility_margin[ply_depth] <= alpha) continue; //Quiet Moves
-                        if (ply_depth < 5 && type != T && globals[id].history_moves[(side * 6) + type][target] <= (HistoryThreshold / ply_depth)) continue; //History Pruning
-                    }
-
+                    if (!IsCapture(capture) && static_eval + futility_margin[ply_depth] <= alpha) continue;
                     if (IsCapture(capture) && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
+                    //if (!IsCapture(capture) && ply_depth < 5 && type != T && globals[id].history_moves[(side * 6) + type][target] <= (HistoryThreshold / ply_depth)) continue; //History Pruning
                 }
             }
             
@@ -2418,12 +2409,12 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
                 continue;
             }
 
-            //Attempt at Recapture extension; Not enabled
+            //Recapture and Check Extensions
             /*extensions = 0;
             if ((pvNode && IsCapture(capture) && IsCapture(get_move_capture(p_move)) && target == get_move_target(p_move)) ||
                 (in_check)) {
                 extensions = 1;
-            } */
+            }*/
 
             if (legal_moves == 0) {//Do normal search on the first one
                 score = -SubSearch(id, total_depth, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, move, p_eval, static_eval, -beta, -alpha);
@@ -2496,6 +2487,8 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
     GenerateMoves(id, list_index, side); 
 
     for (int i = 0; i < globals[id].ordered_moves[list_index].count; i++) {
+        //if (StopGame(id)) break;
+
         move = globals[id].ordered_moves[list_index].moves[i].encoding;
         source = get_move_source(move);
         target = get_move_target(move);
@@ -2566,14 +2559,6 @@ static inline void IterativeDeepening(char id, int ply_depth, int initial_depth,
         alpha = score - 10;
         beta = score + 10;
     }
-
-    mtx.lock();
-    if (!THREAD_STOPPED) {
-        THREAD_STOPPED = true;
-        AVERAGE_SEARCH_TIME += GetTimePassed();
-    }
-    mtx.unlock();
-
 }
 
 static inline SearchResult FindBestMove(char side) {
@@ -2605,6 +2590,7 @@ static inline SearchResult FindBestMove(char side) {
         threads.emplace_back([id, ply_depth, initial_depth, side]{
             IterativeDeepening(id, ply_depth, initial_depth, side);
         });
+        initial_depth++;
     }
 
 
@@ -2619,7 +2605,9 @@ static inline SearchResult FindBestMove(char side) {
             best_result = globals[id].search_result;
         }
     }
-    
+
+    AVERAGE_SEARCH_TIME += GetTimePassed();
+
     return best_result;
 }
 
@@ -2739,7 +2727,7 @@ void SelfPlay() {
             if (log_counter >= log_max) {log_timed = false; is_continuous = false; log_max = 0;}
         }
 
-        if (!log_only && !log_timed) print_full_board();
+        if (!log_only && !log_timed && !new_game) print_full_board();
 
         response = "";
         if (!is_continuous) {
