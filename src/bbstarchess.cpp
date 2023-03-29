@@ -1005,12 +1005,12 @@ struct OrderedMoves {
 };
 
 struct SearchResult {
-    long final_move;
-    U64 final_move_key;
-    int final_score;
-    char thread_id;
-    char flag;
-    int final_depth;
+    long final_move = 0;
+    U64 final_move_key = 0;
+    int final_score = 0;
+    char thread_id = 0;
+    char flag = 0;
+    int search_depth = 0;
     
     void Clear() {
         final_move = 0;
@@ -1018,7 +1018,7 @@ struct SearchResult {
         final_score = 0;
         thread_id = 0;
         flag = NO_MOVE;
-        final_depth = 0;
+        search_depth = 0;
     }
 };
 
@@ -1033,6 +1033,7 @@ struct SearchResult {
     SearchResult search_result;
     int pv_length[MAX_DEPTH]; // PV length [ply]
     long pv_table[MAX_DEPTH][MAX_DEPTH]; // PV table [ply][ply]
+    int total_depth = 0;
 };
 
 const size_t MAX_THREADS = 8; //4
@@ -2168,6 +2169,7 @@ const long long TIME_LIMIT = 4000000; //4 seconds
 
 
 long NODES_SEARCHED = 0; //GLOBAL
+int FINAL_DEPTH = 0;
 int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends. //GLOBAL
 long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends. //GLOBAL
 long long MAX_SEARCH_TIME = 0; //GLOBAL
@@ -2204,6 +2206,7 @@ inline bool StopGame(char id) {
 
 void ClearTimeNodeValues() {
     NODES_SEARCHED = 0;
+    FINAL_DEPTH = 0;
     TIMEOUT_STOPPED = false;
     ABORT_GAME = false;
 }
@@ -2292,7 +2295,7 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
 //pp_eval = static eval from this sides last turn, so the turn before the last turn
 //p_eval = static eval from the last turn, so the opponents turn that led to this one.
 //p_move = previous move.encoding that caused this search
-static inline int SubSearch(char id, int total_depth, int ply_depth, int list_index, char side, U64 prev_key, bool null_move, long p_move, int pp_eval, int p_eval, int alpha, int beta) {
+static inline int SubSearch(char id, int ply_depth, int list_index, char side, U64 prev_key, bool null_move, int pp_eval, int p_eval, int alpha, int beta) {
      if (ABORT_GAME) return 0;
 
     //Set PV Length. This must occur here at the top.
@@ -2304,8 +2307,8 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
     globals[id].NODES_SEARCHED++;
 
     // Mate Distance Pruning;
-    if (alpha < -MATE_VALUE + (total_depth - ply_depth)) alpha = -MATE_VALUE + (total_depth - ply_depth);
-    if (beta > MATE_VALUE - (total_depth - ply_depth) - 1) beta = MATE_VALUE - (total_depth - ply_depth) - 1;
+    if (alpha < -MATE_VALUE + (globals[id].total_depth - ply_depth)) alpha = -MATE_VALUE + (globals[id].total_depth - ply_depth);
+    if (beta > MATE_VALUE - (globals[id].total_depth - ply_depth) - 1) beta = MATE_VALUE - (globals[id].total_depth - ply_depth) - 1;
     if (alpha >= beta) return alpha;
 
     int score;
@@ -2346,21 +2349,13 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
         //Null Move Pruning
         if (null_move) {
             if (ply_depth >= 3)
-                score = -SubSearch(id, total_depth, ply_depth - 3, list_index+1, !side, prev_key, false, p_move, p_eval, static_eval, -beta, -beta + 1);
+                score = -SubSearch(id, ply_depth - 3, list_index+1, !side, prev_key, false, p_eval, static_eval, -beta, -beta + 1);
             else
                 score = -QSearch(id, QDEPTH, 0, !side, prev_key, -beta, -beta + 1);
             
             if (score >= beta)
                 return beta;
         }
-
-        //Probability Cut - Doesn't do much - Here for reference.
-        /*if (ply_depth > 3 && (IsCapture(get_move_capture(p_move)) || get_move_promotion(p_move) != 0)) {
-            int bound = beta + 191 - 54 * improving;
-            score = Search(id, ply_depth - 3, side, prev_key, true, p_move, pp_eval, p_eval, -bound, -bound+1);
-            if (score >= bound)
-                return score;
-        }*/
     }
 
     GenerateMoves(id, list_index, side);
@@ -2409,15 +2404,8 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
                 continue;
             }
 
-            //Recapture and Check Extensions
-            /*extensions = 0;
-            if ((pvNode && IsCapture(capture) && IsCapture(get_move_capture(p_move)) && target == get_move_target(p_move)) ||
-                (in_check)) {
-                extensions = 1;
-            }*/
-
             if (legal_moves == 0) {//Do normal search on the first one
-                score = -SubSearch(id, total_depth, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, move, p_eval, static_eval, -beta, -alpha);
+                score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, -beta, -alpha);
             }
             else { //Late Move Reduction (LMR)
                 if (!in_check &&
@@ -2426,15 +2414,15 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
                     ply_depth >= ReductionLimit &&
                     !IsCapture(capture) &&
                     promotion == 0)
-                    score = -SubSearch(id, total_depth, ply_depth - 2, list_index+1, !side, move_key, true, move, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
+                    score = -SubSearch(id, ply_depth - 2, list_index+1, !side, move_key, true, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
                 else
                     score = alpha + 1;
 
                 // if found a better move during LMR then do PVS
                 if (score > alpha) { // re-search at full depth but with narrowed bandwitdh
-                    score = -SubSearch(id, total_depth, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, move, p_eval, static_eval, -alpha - 1, -alpha);
+                    score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, -alpha - 1, -alpha);
                     if ((score > alpha) && (score < beta))
-                        score = -SubSearch(id, total_depth, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, move, p_eval, static_eval, -beta, -alpha);
+                        score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, -beta, -alpha);
                 }
             }
 
@@ -2466,13 +2454,15 @@ static inline int SubSearch(char id, int total_depth, int ply_depth, int list_in
 
     // we don't have any legal moves to make in the current postion, then return checkmate or stalemate
     if (legal_moves == 0)  {
-        return (in_check) ? -MATE_VALUE + (total_depth - ply_depth) : DRAW_VALUE;
+        return (in_check) ? -MATE_VALUE + (globals[id].total_depth - ply_depth) : DRAW_VALUE;
     }
 
     return alpha;
 }
 
 static inline void Negamax(char id, int ply_depth, char side, int alpha, int beta) {
+    globals[id].total_depth = ply_depth;
+
     int score = 0;
     char type, capture, promotion; int source, target; long move; U64 move_key; 
     U64 start_key = BuildTranspositionKey();
@@ -2487,8 +2477,6 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
     GenerateMoves(id, list_index, side); 
 
     for (int i = 0; i < globals[id].ordered_moves[list_index].count; i++) {
-        //if (StopGame(id)) break;
-
         move = globals[id].ordered_moves[list_index].moves[i].encoding;
         source = get_move_source(move);
         target = get_move_target(move);
@@ -2506,7 +2494,7 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
         move_key = GetTTKey(start_key, side, (side * 6) + type, capture, source, target);
 
         if (!IsRepeated(move_key))
-            score = -SubSearch(id, ply_depth, ply_depth-1, list_index+1, !side, move_key, true, move, 0, static_eval, -beta, -alpha);
+            score = -SubSearch(id, ply_depth-1, list_index+1, !side, move_key, true, 0, static_eval, -beta, -alpha);
         else
             score = -MATE_VALUE;
 
@@ -2516,17 +2504,18 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
 
         if (score > alpha) {
             alpha = score;
+
+            HandlePVMove(id, 0, move);
+
             globals[id].search_result.final_move = move;
             globals[id].search_result.final_score = score;
             globals[id].search_result.final_move_key = move_key;
-
-            HandlePVMove(id, 0, move);
+            globals[id].search_result.flag = FOUND_MOVE;
+            globals[id].search_result.search_depth = ply_depth;
         }
     }
 
     globals[id].ordered_moves[list_index].Clear();
-
-    globals[id].search_result.final_depth = ply_depth;
 
     if (legal_moves == 0) // we don't have any legal moves to make in the current postion
         globals[id].search_result.flag = (in_check) ? CHECKMATE : STALEMATE;
@@ -2565,6 +2554,7 @@ static inline SearchResult FindBestMove(char side) {
     StartTimer();
 
     SearchResult best_result;
+
     vector<thread> threads;
     threads.reserve(THREAD_COUNT);
     int ply_depth = DEPTH;
@@ -2580,6 +2570,7 @@ static inline SearchResult FindBestMove(char side) {
         memset(globals[id].history_moves, 0, sizeof(globals[id].history_moves));
         memset(globals[id].pv_table, 0, sizeof(globals[id].pv_table));
         memset(globals[id].pv_length, 0, sizeof(globals[id].pv_length));
+        globals[id].total_depth = 0;
         globals[id].search_result.Clear();
         globals[id].search_result.thread_id = id;
     }
@@ -2598,12 +2589,20 @@ static inline SearchResult FindBestMove(char side) {
         threads[id].join();
     }
 
+    //Get the best move in all the threads
     for (int id = 0; id < THREAD_COUNT; id++) {
-        //printf("thread %d nodes searched: %ld\n", id, globals[id].NODES_SEARCHED);
         NODES_SEARCHED += globals[id].NODES_SEARCHED;
+
         if (globals[id].search_result.flag != NO_MOVE) {
-            best_result = globals[id].search_result;
+            if (best_result.flag == NO_MOVE ||
+                globals[id].search_result.flag != FOUND_MOVE ||
+                globals[id].search_result.search_depth >= best_result.search_depth) {
+                best_result = globals[id].search_result;
+            }
         }
+
+        if (globals[id].total_depth > FINAL_DEPTH)
+            FINAL_DEPTH = globals[id].total_depth;
     }
 
     AVERAGE_SEARCH_TIME += GetTimePassed();
@@ -2800,8 +2799,8 @@ void SelfPlay() {
         else {
             //Print out testing/logging info
             if (!log_only && !log_timed) printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
-            printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|PiecesLeft=%d|NodesSearched=%ld|Time=%s]%s\n",
-                    TURN, DEPTH, QDEPTH, search_result.final_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, 
+            printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|SearchDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|PiecesLeft=%d|NodesSearched=%ld|Time=%s]%s\n",
+                    TURN, DEPTH, QDEPTH, FINAL_DEPTH, search_result.search_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, 
                     (IsCapture(capture)) ? ascii_pieces[capture] : 'X', search_result.final_score, search_result.thread_id, 
                     Count(Occupancies[both]), NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
 
