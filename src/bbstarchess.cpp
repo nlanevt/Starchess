@@ -368,36 +368,33 @@ static inline int Count(Int343 bitboard) {
 
 static inline int ForwardScanPop(Int343 *bitboard) {
     int result = 0;
-    for (int i = 5; i >= 0; i--) {
-        if (bitboard->Bits[i] != 0) {
-            result += __builtin_ctzll(bitboard->Bits[i]);
-            bitboard->Bits[i] &= bitboard->Bits[i] - 1;
-            return result;
-        }
-        result += 64;
-    }
+    if (bitboard->Bits[5] != 0) {result = __builtin_ctzll(bitboard->Bits[5]); bitboard->Bits[5] &= bitboard->Bits[5] - 1; return result;}
+    if (bitboard->Bits[4] != 0) {result = 64 + __builtin_ctzll(bitboard->Bits[4]); bitboard->Bits[4] &= bitboard->Bits[4] - 1; return result;}
+    if (bitboard->Bits[3] != 0) {result = 128 + __builtin_ctzll(bitboard->Bits[3]); bitboard->Bits[3] &= bitboard->Bits[3] - 1; return result;}
+    if (bitboard->Bits[2] != 0) {result = 192 + __builtin_ctzll(bitboard->Bits[2]); bitboard->Bits[2] &= bitboard->Bits[2] - 1; return result;}
+    if (bitboard->Bits[1] != 0) {result = 256 + __builtin_ctzll(bitboard->Bits[1]); bitboard->Bits[1] &= bitboard->Bits[1] - 1; return result;}
+    if (bitboard->Bits[0] != 0) {result = 320 + __builtin_ctzll(bitboard->Bits[0]); bitboard->Bits[0] &= bitboard->Bits[0] - 1; return result;}
+
     return -1;
 }
 
 static inline int BitScanForward(Int343 bitboard) {
-    int index = 0;
-    for (int i = 5; i >= 0; i--) {
-        if (bitboard.Bits[i] != 0)
-            return index + __builtin_ctzll(bitboard.Bits[i]);
-        index += 64;
-    }
-
+    if (bitboard.Bits[5] != 0) return __builtin_ctzll(bitboard.Bits[5]);
+    if (bitboard.Bits[4] != 0) return 64 + __builtin_ctzll(bitboard.Bits[4]);
+    if (bitboard.Bits[3] != 0) return 128 + __builtin_ctzll(bitboard.Bits[3]);
+    if (bitboard.Bits[2] != 0) return 192 + __builtin_ctzll(bitboard.Bits[2]);
+    if (bitboard.Bits[1] != 0) return 256 + __builtin_ctzll(bitboard.Bits[1]);
+    if (bitboard.Bits[0] != 0) return 320 + __builtin_ctzll(bitboard.Bits[0]);
     return -1;
 }
 
 static inline int BitScanReverse(Int343 bitboard) {
-    int index = 320;
-    for (int i = 0; i < 6; i++) {
-        if (bitboard.Bits[i] != 0)
-            return index + (63 - __builtin_clzll(bitboard.Bits[i]));
-        index -= 64;
-    }
-
+    if (bitboard.Bits[0] != 0) return 320 + (63 - __builtin_clzll(bitboard.Bits[0]));
+    if (bitboard.Bits[1] != 0) return 256 + (63 - __builtin_clzll(bitboard.Bits[1]));
+    if (bitboard.Bits[2] != 0) return 192 + (63 - __builtin_clzll(bitboard.Bits[2]));
+    if (bitboard.Bits[3] != 0) return 128 + (63 - __builtin_clzll(bitboard.Bits[3]));
+    if (bitboard.Bits[4] != 0) return 64 + (63 - __builtin_clzll(bitboard.Bits[4]));
+    if (bitboard.Bits[5] != 0) return 63 - __builtin_clzll(bitboard.Bits[5]);
     return -1;
 }
 
@@ -416,11 +413,10 @@ Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
-const int MAX_DEPTH = 16; //12
+const int MAX_DEPTH = 20; //12
 const int MAX_QDEPTH = 28; //12
 int DEPTH = MAX_DEPTH; //8
 int QDEPTH = MAX_QDEPTH; //12
-
 /**********************************\
  ==================================
  
@@ -649,7 +645,7 @@ char octa_directions[343][12];
 char cube_directions[343][6];
 Int343 octa_edge_masks[343];
 Int343 cube_edge_masks[343];
-//Int343 tetra_isolation_masks[49];
+Int343 tetra_isolation_masks[49];
 
 
 // Generate Tetra Attacks
@@ -948,11 +944,11 @@ void init_attacks() {
     }
 }
 
-/*void init_tetra_isolation_masks() {
+void init_tetra_isolation_masks() {
     for (int rf = 0; rf < 49; rf++) {
         tetra_isolation_masks[rf] = build_tetra_isolation_mask(rf);
     }
-}*/
+}
 
 void init_rays_directions_edges() {
     for (int block = 0; block < 343; block++) {
@@ -1034,6 +1030,7 @@ struct SearchResult {
     int pv_length[MAX_DEPTH]; // PV length [ply]
     long pv_table[MAX_DEPTH][MAX_DEPTH]; // PV table [ply][ply]
     int total_depth = 0;
+    bool IsEndGame = false;
 };
 
 const size_t MAX_THREADS = 8; //4
@@ -1331,21 +1328,21 @@ const int material_score[12] = { 100, 320, 325, 500, 1000, 32767, -100, -320, -3
 //Positional score board
 const int position_scores[6][343] =
 {{  // Tetra position scores
-    40,  40,  40,  40,  40,  40,  40,
-    40,  50,  50,  50,  50,  50,  40,
-    40,  50,  50,  50,  50,  50,  40,
-    40,  50,  50,  50,  50,  50,  40,
-    40,  50,  50,  50,  50,  50,  40,
-    40,  50,  50,  50,  50,  50,  40,
-    40,  40,  40,  40,  40,  40,  40,
+    90,  90,  90,  90,  90,  90,  90,
+    90,  90,  90,  90,  90,  90,  90,
+    90,  90,  90,  90,  90,  90,  90,
+    90,  90,  90,  90,  90,  90,  90,
+    90,  90,  90,  90,  90,  90,  90,
+    90,  90,  90,  90,  90,  90,  90,
+    90,  90,  90,  90,  90,  90,  90,
 
     30,  30,  30,  30,  30,  30,  30,
-    30,  30,  30,  30,  30,  30,  30,
-    30,  30,  40,  40,  40,  30,  30,
-    30,  30,  40,  40,  40,  30,  30,
-    30,  30,  40,  40,  40,  30,  30,
-    30,  30,  30,  30,  30,  30,  30,
-    30,  30,  30,  30,  30,  30,  30,
+    30,  40,  40,  40,  40,  40,  30,
+    30,  40,  50,  50,  50,  40,  30,
+    30,  40,  50,  50,  50,  40,  30,
+    30,  40,  50,  50,  50,  40,  30,
+    30,  40,  40,  40,  40,  40,  30,
+    30,  40,  40,  40,  40,  40,  30,
 
     20,  20,  20,  20,  20,  20,  20,
     20,  30,  30,  30,  30,  30,  20,
@@ -1364,11 +1361,11 @@ const int position_scores[6][343] =
     10,  10,  10,  10,  10,  10,  10,
 
     10,  10,  10,  10,  10,  10,  10,
-    10,  10,  10,  10,  10,  10,  10,
-    10,  10,  10,  10,  10,  10,  10,
-    10,  10,  10,  10,  10,  10,  10,
-    10,  10,  10,  10,  10,  10,  10,
-    10,  10,  10,  10,  10,  10,  10,
+    10,  15,  15,  15,  15,  15,  10,
+    10,  15,  15,  15,  15,  15,  10,
+    10,  15,  15,  15,  15,  15,  10,
+    10,  15,  15,  15,  15,  15,  10,
+    10,  15,  15,  15,  15,  15,  10,
     10,  10,  10,  10,  10,  10,  10,
 
      0,   0,   0,   0,   0,   0,   0,
@@ -1744,46 +1741,73 @@ static int mvv_lva[12][12] = {
     100, 200, 300, 400, 500, 600,  100, 200, 300, 400, 500, 600
 };
 
+inline int CountSafeAttacks(char id, char attacker, int sphere_block) {
+
+    //Attacked by Octa
+    Int343 octa_moves = GetOctaMoves(id, sphere_block);
+    octa_moves ^= (octa_moves & sphere_attacks[sphere_block]);
+    int count = Count(octa_moves & ((attacker == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]));
+
+    //attacked by Cube
+    Int343 cube_moves = GetCubeMoves(id, sphere_block);
+    cube_moves ^= (cube_moves & sphere_attacks[sphere_block]);
+    count += Count(cube_moves & ((attacker == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]));
+
+    //attacked by Icosa    
+    count += Count((cube_moves | octa_moves) & ((attacker == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]));
+
+    // attacked by dodecas
+    count += Count(dodeca_attacks[sphere_block] & ((attacker == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]));
+
+    return count;
+}
+
+/*inline int CountSphereAttacks(char id, char side, bool in_check, int sphere_block) {
+    int target, count = 0;
+
+    //Count the check
+    if (in_check && CountSafeAttacks(id, !side, sphere_block) > 0) count = 1;
+
+    //Count the mobility loss
+    Int343 sphere_moves = GetValidSphereMoves(id, side, sphere_block);
+    while ((target = ForwardScanPop(&sphere_moves)) >= 0) {
+        if (CountSafeAttacks(id, !side, target) > 0) count++;
+    }
+
+    return count;
+}*/
+
 inline int Evaluation(char id, char side, bool in_check) {
     int block, score = 0; Int343 bitboard; Int343 moves;
-    int total_count = Count(globals[id].Occupancies[both]);
 
-    //if (in_check) score += (side == white) ? -70 : 70; //Add points for check
-    if (total_count > 60)
-        score += (side == white) ? 10 : -10; //Add points for tempo
-    else
-        score += (side == white) ? 3 : -3; //Add points for tempo
-
-    if (in_check) {
-        if (80 > total_count && total_count >= 60)
-            score += (side == white) ? -10 : 10;
-        else if (60 > total_count && total_count >= 40)
-            score += (side == white) ? -20 : 20;
-        else if (40 > total_count)
-            score += (side == white) ? -40 : 40;
-    }
+    if (globals[id].IsEndGame) score += (side == white) ? 3 : -3; //Add points for tempo
+    else score += (side == white) ? 10 : -10; //Add points for tempo
 
     //Add white scores --------------------------------------------------------------------------------------------------------------------
-    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {
-        score += material_score[T]; score += position_scores[T][block];
-        /*score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 12 : 0; */
-    }
+    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {score += material_score[T]; score += position_scores[T][block]; score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 10 : 0; }
     bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block];}
     bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; }
     bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; }
     score += (Count(globals[id].Bitboards[I]) * material_score[I]); //Add the White Icosa material scores
-    bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[S]; score += position_scores[S][block]; }
+    bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
+        score += material_score[S]; score += position_scores[S][block]; 
+        if (in_check && side == white) {
+            score -= (globals[id].IsEndGame) ? CountSafeAttacks(id, black, block) * 3 : CountSafeAttacks(id, black, block);
+        }
+    }
 
     //Subtract black scores (material_score contains negative values) ----------------------------------------------------------------------
-    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) {
-        score += material_score[t]; score -= position_scores[T][mirror_score[block]]; 
-        //score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 12 : 0;
-    }
+    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) {score += material_score[t]; score -= position_scores[T][mirror_score[block]]; score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 10 : 0;}
     bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; }
     score += (Count(globals[id].Bitboards[i]) * material_score[i]); //Add the Black Icosa material scores
-    bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[s]; score -= position_scores[S][mirror_score[block]]; }
+    bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
+        score += material_score[s]; score -= position_scores[S][mirror_score[block]]; 
+        if (in_check && side == black) {
+            score += (globals[id].IsEndGame) ? CountSafeAttacks(id, white, block) * 3 : CountSafeAttacks(id, white, block);
+        }
+    }
 
     return score * ((side == white) ? 1 : -1);
 }
@@ -1794,7 +1818,10 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
         return 20000;
     }
     else if (IsCapture(capture)) {
-        return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
+        if (type <= capture) 
+            return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
+        else
+            return mvv_lva[type][capture] + 6000;
     }
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
         return 9000; //Made up number for promotion relative to the mvv_lva lookup table;
@@ -1828,35 +1855,32 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
  
  ==================================
 \**********************************/
-const size_t MOVES_LIST_SIZE = 1000;
+const size_t MAX_TURNS = 1000; //Cap on number of turns
 const size_t EMPTY_MOVE_THRESHOLD = 100;
 OrderedMoves ordered_moves[MAX_DEPTH]; //GLOBAL
 OrderedMoves quiescence_moves[MAX_QDEPTH]; //GLOBAL
-U64 moves_list[MOVES_LIST_SIZE]; //TODO: THere is likely an issue with how these are handled through Unity. On loaded games this information disappears
+U64 moves_list[MAX_TURNS]; //TODO: THere is likely an issue with how these are handled through Unity. On loaded games this information disappears
 
 static inline void AddToMoveList(U64 move_key) {
-    if (TURN < MOVES_LIST_SIZE) {
+    if (TURN < MAX_TURNS) {
         moves_list[TURN] = move_key;
-    }
-    else {
-        for (int i = 0; i < MOVES_LIST_SIZE - 1; i++) {
-            moves_list[i] = moves_list[i+1];
-        }
-        moves_list[MOVES_LIST_SIZE-1] = move_key;
     }
 }
 
 static inline bool IsRepeated(U64 new_position) {
-    if (TURN > 4 && new_position == moves_list[TURN-4]) {
+    if (TURN > 4 && (new_position == moves_list[TURN-4] || new_position == moves_list[TURN-6] || new_position == moves_list[TURN-8])) {
         return true;
     }
+
     return false;
 }
 
 bool IsThreefoldRepetition(U64 move_key) {
+    if (TURN >= MAX_TURNS) return true;
+
     //threefold repetition
     int repetition_counter = 0;
-    for (int i = (TURN < MOVES_LIST_SIZE) ? TURN-2 : MOVES_LIST_SIZE-1; i >= 0; i--) {
+    for (int i = (TURN < MAX_TURNS) ? TURN-2 : (MAX_TURNS / 4); i >= 0; i--) {
         if (move_key == moves_list[i]) repetition_counter++;
         if (repetition_counter >= 3) {
             return true;
@@ -1868,12 +1892,14 @@ bool IsThreefoldRepetition(U64 move_key) {
 
 //Doesn't necessarily use 50 as the threshold
 bool IsEmptyMoveRule(long move) {
+    if (TURN >= MAX_TURNS) return true;
+
     bool fifty_rule = false;
     if (TURN >= EMPTY_MOVE_THRESHOLD && get_move_piece(move) != T && !IsCapture(get_move_capture(move))) {
         fifty_rule = true;
         int cap = 0;
         char type, capture;
-        for (int i = (TURN < MOVES_LIST_SIZE) ? TURN-2 : MOVES_LIST_SIZE-1; cap < EMPTY_MOVE_THRESHOLD && i >= 0; i--, cap++) {
+        for (int i = (TURN < MAX_TURNS) ? TURN-2 : MAX_TURNS-1; cap < EMPTY_MOVE_THRESHOLD && i >= 0; i--, cap++) {
             type = get_move_piece(moves_list[i]);
             capture = get_move_capture(moves_list[i]);
             if (type == T || IsCapture(capture)) {
@@ -1916,6 +1942,8 @@ bool IsInsufficientMaterial() {
 }
 
 bool IsDrawnGame(long move, U64 move_key) {
+    if (TURN >= MAX_TURNS) return true;
+
     //threefold repetition
     if (IsThreefoldRepetition(move_key)) return true;
 
@@ -1924,6 +1952,7 @@ bool IsDrawnGame(long move, U64 move_key) {
     
     //Insufficient Material
     if (IsInsufficientMaterial()) return true;
+
     
     return false;
 }
@@ -2298,7 +2327,6 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
 
 //pp_eval = static eval from this sides last turn, so the turn before the last turn
 //p_eval = static eval from the last turn, so the opponents turn that led to this one.
-//p_move = previous move.encoding that caused this search
 static inline int SubSearch(char id, int ply_depth, int list_index, char side, U64 prev_key, bool null_move, int pp_eval, int p_eval, int alpha, int beta) {
      if (ABORT_GAME) return 0;
 
@@ -2491,7 +2519,7 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
         if (!IsRepeated(move_key))
             score = -SubSearch(id, ply_depth-1, list_index+1, !side, move_key, true, 0, static_eval, -beta, -alpha);
         else
-            score = -MATE_VALUE;
+            score = alpha;
 
         ReverseMove(id, side, type, capture, promotion, source, target);
 
@@ -2506,11 +2534,13 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
             globals[id].search_result.final_score = score;
             globals[id].search_result.final_move_key = move_key;
             globals[id].search_result.flag = FOUND_MOVE;
-            globals[id].search_result.search_depth = ply_depth;
+           // globals[id].search_result.search_depth = ply_depth;
         }
     }
 
     globals[id].ordered_moves[list_index].Clear();
+
+    globals[id].search_result.search_depth = ply_depth; //May be better to have it here, but untested.
 
     if (legal_moves == 0) // we don't have any legal moves to make in the current postion
         globals[id].search_result.flag = (in_check) ? CHECKMATE : STALEMATE;
@@ -2554,6 +2584,8 @@ static inline SearchResult FindBestMove(char side) {
     threads.reserve(THREAD_COUNT);
     int ply_depth = DEPTH;
 
+    bool IsEndGame = Count(Occupancies[both]) <= 50;
+
     //Reset global values
     for (int id = 0; id < THREAD_COUNT; id++) {
         for (int i = 0; i < 12; i++) globals[id].Bitboards[i] = Bitboards[i];
@@ -2566,6 +2598,7 @@ static inline SearchResult FindBestMove(char side) {
         memset(globals[id].pv_table, 0, sizeof(globals[id].pv_table));
         memset(globals[id].pv_length, 0, sizeof(globals[id].pv_length));
         globals[id].total_depth = 0;
+        globals[id].IsEndGame = IsEndGame;
         globals[id].search_result.Clear();
         globals[id].search_result.thread_id = id;
     }
@@ -2598,6 +2631,8 @@ static inline SearchResult FindBestMove(char side) {
 
         if (globals[id].total_depth > FINAL_DEPTH)
             FINAL_DEPTH = globals[id].total_depth;
+
+        //printf("|id=%d|depth=%d|score=%d|\n", id, globals[id].search_result.search_depth, globals[id].search_result.final_score);
     }
 
     AVERAGE_SEARCH_TIME += GetTimePassed();
@@ -2616,7 +2651,7 @@ void SwitchTurnValues(U64 move_key) {
 void ClearMiscTables() {
     for (int i = 0; i < DEPTH; i++) ordered_moves[i].Clear();
     for (int i = 0; i < QDEPTH; i++) quiescence_moves[i].Clear();
-    for (int i = 0; i < MOVES_LIST_SIZE; i++) moves_list[i] = 0;
+    for (int i = 0; i < MAX_TURNS; i++) moves_list[i] = 0;
 }
 
 // init all variables
@@ -2626,7 +2661,7 @@ void init_variables()
     //Static variables
     init_attacks();
     init_rays_directions_edges();
-    //init_tetra_isolation_masks();
+    init_tetra_isolation_masks();
     init_random_keys();
 
     //New Game Variables
@@ -3067,7 +3102,3 @@ int main() {
 
     return 0;
 }
-
-
-
-
