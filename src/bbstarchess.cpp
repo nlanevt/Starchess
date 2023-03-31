@@ -417,7 +417,7 @@ char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
 const int MAX_DEPTH = 16; //12
-const int MAX_QDEPTH = 12; //12
+const int MAX_QDEPTH = 28; //12
 int DEPTH = MAX_DEPTH; //8
 int QDEPTH = MAX_QDEPTH; //12
 
@@ -1183,6 +1183,38 @@ static inline int GetCapture(char id, char side, int target) {
     return NO_CAPTURE;
 }
 
+inline bool is_block_attacked(char id, int block, char side) {
+    Int343 octa_moves = GetOctaMoves(id, block);
+    Int343 check = octa_moves & ((side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
+    if (IsSet(check)) return true;
+
+    //attacked by Cube
+    Int343 cube_moves = GetCubeMoves(id, block);
+    check = cube_moves & ((side == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]);
+    if (IsSet(check)) return true;
+
+    //attacked by Icosa
+    check = (cube_moves | octa_moves) & ((side == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]);
+    if (IsSet(check)) return true;
+
+    // attacked by dodecas
+    check = dodeca_attacks[block] & ((side == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]);
+    if (IsSet(check)) return true;
+
+    check = (side == white) ? (tetra_attacks[black][block] & globals[id].Bitboards[T]) 
+                                   : (tetra_attacks[white][block] & globals[id].Bitboards[t]);
+    if (IsSet(check)) return true;
+
+    // attacked by Sphere
+    check = sphere_attacks[block] & ((side == white) ? globals[id].Bitboards[S] : globals[id].Bitboards[s]);
+    if (IsSet(check)) return true;
+
+    return false;
+}
+
+#define IsInCheck(id, side, type, target, sphere_source)  ((type != S) ? is_block_attacked(id, sphere_source, !side) : is_block_attacked(id, target, !side))
+#define GetSphereSource(id, side) ((side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]))
+
 void print_move(long move) {
     char type = get_move_piece(move);
     int source = get_move_source(move);
@@ -1299,14 +1331,6 @@ const int material_score[12] = { 100, 320, 325, 500, 1000, 32767, -100, -320, -3
 //Positional score board
 const int position_scores[6][343] =
 {{  // Tetra position scores
-    90,  90,  90,  90,  90,  90,  90,
-    90,  90,  90,  90,  90,  90,  90,
-    90,  90,  90,  90,  90,  90,  90,
-    90,  90,  90,  90,  90,  90,  90,
-    90,  90,  90,  90,  90,  90,  90,
-    90,  90,  90,  90,  90,  90,  90,
-    90,  90,  90,  90,  90,  90,  90,
-
     40,  40,  40,  40,  40,  40,  40,
     40,  50,  50,  50,  50,  50,  40,
     40,  50,  50,  50,  50,  50,  40,
@@ -1337,6 +1361,14 @@ const int position_scores[6][343] =
     10,  20,  20,  20,  20,  20,  10,
     10,  20,  20,  20,  20,  20,  10,
     10,  20,  20,  20,  20,  20,  10,
+    10,  10,  10,  10,  10,  10,  10,
+
+    10,  10,  10,  10,  10,  10,  10,
+    10,  10,  10,  10,  10,  10,  10,
+    10,  10,  10,  10,  10,  10,  10,
+    10,  10,  10,  10,  10,  10,  10,
+    10,  10,  10,  10,  10,  10,  10,
+    10,  10,  10,  10,  10,  10,  10,
     10,  10,  10,  10,  10,  10,  10,
 
      0,   0,   0,   0,   0,   0,   0,
@@ -1775,7 +1807,12 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
             return 7000;
         }
         else {
-            return globals[id].history_moves[(side * 6) + type][target];
+            //return globals[id].history_moves[(side * 6) + type][target]; //This is possibly buggy
+            if (globals[id].history_moves[(side * 6) + type][target] > 0) {
+                return 1000 + (globals[id].history_moves[(side * 6) + type][target] / 100);
+            }
+            else
+                return 0;
         } 
     }
     
@@ -1962,37 +1999,6 @@ inline void ReverseMove(char id, char side, int attacker, char capture, char pro
     }
 }
 
-inline bool is_block_attacked(char id, int block, char side) {
-    Int343 octa_moves = GetOctaMoves(id, block);
-    Int343 check = octa_moves & ((side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
-    if (IsSet(check)) return true;
-
-    //attacked by Cube
-    Int343 cube_moves = GetCubeMoves(id, block);
-    check = cube_moves & ((side == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]);
-    if (IsSet(check)) return true;
-
-    //attacked by Icosa
-    check = (cube_moves | octa_moves) & ((side == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]);
-    if (IsSet(check)) return true;
-
-    // attacked by dodecas
-    check = dodeca_attacks[block] & ((side == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]);
-    if (IsSet(check)) return true;
-
-    check = (side == white) ? (tetra_attacks[black][block] & globals[id].Bitboards[T]) 
-                                   : (tetra_attacks[white][block] & globals[id].Bitboards[t]);
-    if (IsSet(check)) return true;
-
-    // attacked by Sphere
-    check = sphere_attacks[block] & ((side == white) ? globals[id].Bitboards[S] : globals[id].Bitboards[s]);
-    if (IsSet(check)) return true;
-
-    return false;
-}
-
-#define IsInCheck(id, side, type, target, sphere_source)  ((type != S) ? is_block_attacked(id, sphere_source, !side) : is_block_attacked(id, target, !side))
-
 static inline void GenerateMoves(char id, int list_index, char side) {
     int source, target, score;
     char capture;
@@ -2161,8 +2167,6 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
 
 const int FullDepthMoves = 4; //4
 const int ReductionLimit = 3; //3
-const int futility_margin[6] = {0, 100, 320, 500, 1000, 1320}; //TODO: May need adjusting/refactoring
-//const int HistoryThreshold = 10000;
 //const long long TIME_LIMIT = 15000000; //15 seconds
 //const long long TIME_LIMIT = 4000000; //4 seconds
 const long long TIME_LIMIT = 4000000; //4 seconds
@@ -2227,7 +2231,7 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
     if (ABORT_GAME) return 0;
     globals[id].NODES_SEARCHED++;
 
-    int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
+    int sphere_source = GetSphereSource(id, side);
     int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side));
 
     if (ply_depth <= 0 || TIMEOUT_STOPPED || list_index >= QDEPTH) return score;
@@ -2311,8 +2315,8 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     if (beta > MATE_VALUE - (globals[id].total_depth - ply_depth) - 1) beta = MATE_VALUE - (globals[id].total_depth - ply_depth) - 1;
     if (alpha >= beta) return alpha;
 
-    int score;
-    int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
+    int score = 0;
+    int sphere_source = GetSphereSource(id, side);
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check);
     bool improving = (static_eval - pp_eval) > 0;
@@ -2331,11 +2335,6 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
             static_eval - (165 * (ply_depth - improving)) - (p_eval / 280) >= beta &&
             static_eval < 48000) {
             return static_eval;
-        }
-
-        if (ply_depth < 10 && 
-            static_eval + 103 + 138 * ply_depth <= alpha) {
-            return alpha;
         }
 
         //Static Evaluation - Doesn't do much - Here for reference
@@ -2360,12 +2359,10 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
 
     GenerateMoves(id, list_index, side);
 
-    int extensions = 0;
-    if (in_check) extensions = 1;
-
     char type, capture, promotion; int source, target; long move; U64 move_key; TTEntry *tt_entry;
     int legal_moves = 0;
     int futility_move_count = FutilityMoveCount(improving, ply_depth);
+    int extensions = (in_check) ? 1 : 0;
     for (int i = 0; i < globals[id].ordered_moves[list_index].count; i++) {
         move = globals[id].ordered_moves[list_index].moves[i].encoding;
         capture = get_move_capture(move);
@@ -2386,14 +2383,12 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
 
             //Early Pruning
             if (!in_check && legal_moves > 0 && promotion == 0) {
-                //Move Count Pruning, only for non-tetra quiet moves, when legal moves is over futility count
-                if (!IsCapture(capture) && legal_moves >= futility_move_count && type != T) continue;
-
-                //Futility Pruning
-                if (!pvNode && ply_depth <= 5) {
-                    if (!IsCapture(capture) && static_eval + futility_margin[ply_depth] <= alpha) continue;
-                    if (IsCapture(capture) && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
-                    //if (!IsCapture(capture) && ply_depth < 5 && type != T && globals[id].history_moves[(side * 6) + type][target] <= (HistoryThreshold / ply_depth)) continue; //History Pruning
+                if (IsCapture(capture)) { //Futility pruning for captures
+                    if (!pvNode && ply_depth < 6 && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
+                }
+                else {
+                    if (legal_moves >= futility_move_count && type != T) continue; //Move Count Pruning for quiet moves. Not dependent on pvNode
+                    if (!pvNode && ply_depth < 13 && static_eval + 103 + 138 * ply_depth <= alpha) continue;
                 }
             }
             
@@ -2468,7 +2463,7 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
     U64 start_key = BuildTranspositionKey();
     int list_index = 0;
     int legal_moves = 0;
-    int sphere_source = (side == white) ? BitScan(side, globals[id].Bitboards[S]) : BitScan(side, globals[id].Bitboards[s]);
+    int sphere_source = GetSphereSource(id, side);
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, in_check);
 
@@ -2831,7 +2826,7 @@ void SetGlobalBitBoards() {
 }
 
 bool is_sphere_in_check(char side) {
-    int sphere_source = (side == white) ? BitScan(side, globals[0].Bitboards[S]) : BitScan(side, globals[0].Bitboards[s]);
+    int sphere_source = GetSphereSource(0, side);
     return IsInCheck(0, side, S, sphere_source, 0);
 }
 
