@@ -1742,42 +1742,40 @@ static int mvv_lva[12][12] = {
 };
 
 inline int CountSafeAttacks(char id, char attacker, int sphere_block) {
-
-    //Attacked by Octa
+    int block, count = 0; Int343 attackers;
+    
+    //Attacked by Octas
     Int343 octa_moves = GetOctaMoves(id, sphere_block);
     octa_moves ^= (octa_moves & sphere_attacks[sphere_block]);
-    int count = Count(octa_moves & ((attacker == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]));
+    attackers = octa_moves & ((attacker == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
+    while((block = ForwardScanPop(&attackers)) >= 0) {
+        if (!is_block_attacked(id, block, !attacker)) count++;
+    }
 
     //attacked by Cube
     Int343 cube_moves = GetCubeMoves(id, sphere_block);
     cube_moves ^= (cube_moves & sphere_attacks[sphere_block]);
-    count += Count(cube_moves & ((attacker == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]));
+    attackers = cube_moves & ((attacker == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]);
+    while((block = ForwardScanPop(&attackers)) >= 0) {
+        if (!is_block_attacked(id, block, !attacker)) count++;
+    }
 
-    //attacked by Icosa    
-    count += Count((cube_moves | octa_moves) & ((attacker == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]));
+    //attacked by Icosa  
+    attackers = (cube_moves | octa_moves) & ((attacker == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]);
+    while((block = ForwardScanPop(&attackers)) >= 0) {
+        if (!is_block_attacked(id, block, !attacker)) count++;
+    }
 
     // attacked by dodecas
-    count += Count(dodeca_attacks[sphere_block] & ((attacker == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]));
+    attackers = dodeca_attacks[sphere_block] & ((attacker == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]);
+    while((block = ForwardScanPop(&attackers)) >= 0) {
+        if (!is_block_attacked(id, block, !attacker)) count++;
+    }
 
     return count;
 }
 
-/*inline int CountSphereAttacks(char id, char side, bool in_check, int sphere_block) {
-    int target, count = 0;
-
-    //Count the check
-    if (in_check && CountSafeAttacks(id, !side, sphere_block) > 0) count = 1;
-
-    //Count the mobility loss
-    Int343 sphere_moves = GetValidSphereMoves(id, side, sphere_block);
-    while ((target = ForwardScanPop(&sphere_moves)) >= 0) {
-        if (CountSafeAttacks(id, !side, target) > 0) count++;
-    }
-
-    return count;
-}*/
-
-inline int Evaluation(char id, char side, bool in_check) {
+inline int Evaluation(char id, char side, bool in_check, bool full_eval) {
     int block, score = 0; Int343 bitboard; Int343 moves;
 
     if (globals[id].IsEndGame) score += (side == white) ? 3 : -3; //Add points for tempo
@@ -1791,8 +1789,8 @@ inline int Evaluation(char id, char side, bool in_check) {
     score += (Count(globals[id].Bitboards[I]) * material_score[I]); //Add the White Icosa material scores
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
         score += material_score[S]; score += position_scores[S][block]; 
-        if (in_check && side == white) {
-            score -= (globals[id].IsEndGame) ? CountSafeAttacks(id, black, block) * 3 : CountSafeAttacks(id, black, block);
+        if (in_check && full_eval && side == white) {
+            score -= (globals[id].IsEndGame) ? CountSafeAttacks(id, black, block) * 5 : CountSafeAttacks(id, black, block) * 2;
         }
     }
 
@@ -1804,8 +1802,8 @@ inline int Evaluation(char id, char side, bool in_check) {
     score += (Count(globals[id].Bitboards[i]) * material_score[i]); //Add the Black Icosa material scores
     bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
         score += material_score[s]; score -= position_scores[S][mirror_score[block]]; 
-        if (in_check && side == black) {
-            score += (globals[id].IsEndGame) ? CountSafeAttacks(id, white, block) * 3 : CountSafeAttacks(id, white, block);
+        if (in_check && full_eval && side == black) {
+            score += (globals[id].IsEndGame) ? CountSafeAttacks(id, white, block) * 5 : CountSafeAttacks(id, white, block) * 2;
         }
     }
 
@@ -2261,7 +2259,7 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
     globals[id].NODES_SEARCHED++;
 
     int sphere_source = GetSphereSource(id, side);
-    int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side));
+    int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side), true);
 
     if (ply_depth <= 0 || TIMEOUT_STOPPED || list_index >= QDEPTH) return score;
     if (score < alpha + 1000) //Delta pruning
@@ -2346,7 +2344,7 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     int score = 0;
     int sphere_source = GetSphereSource(id, side);
     bool in_check = is_block_attacked(id, sphere_source, !side);
-    int static_eval = Evaluation(id, side, in_check);
+    int static_eval = Evaluation(id, side, in_check, false);
     bool improving = (static_eval - pp_eval) > 0;
     bool pvNode = beta - alpha > 1;
 
@@ -2493,7 +2491,7 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
     int legal_moves = 0;
     int sphere_source = GetSphereSource(id, side);
     bool in_check = is_block_attacked(id, sphere_source, !side);
-    int static_eval = Evaluation(id, side, in_check);
+    int static_eval = Evaluation(id, side, in_check, false);
 
     globals[id].pv_length[0] = 0;
 
