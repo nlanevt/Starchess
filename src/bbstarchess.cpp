@@ -414,7 +414,7 @@ char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
 const int MAX_DEPTH = 20; //12
-const int MAX_QDEPTH = 28; //12
+const int MAX_QDEPTH = 24; //12
 int DEPTH = MAX_DEPTH; //8
 int QDEPTH = MAX_QDEPTH; //12
 /**********************************\
@@ -1251,7 +1251,7 @@ struct TTEntry {
 };
 
 // hash table size
-#define HASH_SIZE 0x800000 //0x750000
+#define HASH_SIZE 0x800000 //0x800000
 TTEntry TransTable[HASH_SIZE][2];
 
 // init random hash keys
@@ -1790,7 +1790,7 @@ inline int Evaluation(char id, char side, bool in_check, bool full_eval) {
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
         score += material_score[S]; score += position_scores[S][block]; 
         if (in_check && full_eval && side == white) {
-            score -= (globals[id].IsEndGame) ? CountSafeAttacks(id, black, block) * 5 : CountSafeAttacks(id, black, block) * 2;
+            score -= (globals[id].IsEndGame) ? CountSafeAttacks(id, black, block) * 20 : CountSafeAttacks(id, black, block) * 10;
         }
     }
 
@@ -1803,7 +1803,7 @@ inline int Evaluation(char id, char side, bool in_check, bool full_eval) {
     bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
         score += material_score[s]; score -= position_scores[S][mirror_score[block]]; 
         if (in_check && full_eval && side == black) {
-            score += (globals[id].IsEndGame) ? CountSafeAttacks(id, white, block) * 5 : CountSafeAttacks(id, white, block) * 2;
+            score += (globals[id].IsEndGame) ? CountSafeAttacks(id, white, block) * 20 : CountSafeAttacks(id, white, block) * 10;
         }
     }
 
@@ -2128,10 +2128,8 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
         moves = GetValidDodecaMoves(id, side, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            if (D <= capture) {
-                score = ScoreCapture(D, capture);
-                globals[id].quiescence_moves[list_index].Add({encode_move(source, target, D, capture, 0, side), score});
-            }
+            score = ScoreCapture(D, capture);
+            globals[id].quiescence_moves[list_index].Add({encode_move(source, target, D, capture, 0, side), score});
         }
     }
 
@@ -2141,10 +2139,8 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
         moves = GetOctaMoves(id, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            if (O <= capture) {
-                score = ScoreCapture(O, capture);
-                globals[id].quiescence_moves[list_index].Add({encode_move(source, target, O, capture, 0, side), score});
-            }
+            score = ScoreCapture(O, capture);
+            globals[id].quiescence_moves[list_index].Add({encode_move(source, target, O, capture, 0, side), score});
         }
     }
 
@@ -2154,10 +2150,8 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
         moves = GetCubeMoves(id, source) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            if (C <= capture) {
-                score = ScoreCapture(C, capture);
-                globals[id].quiescence_moves[list_index].Add({encode_move(source, target, C, capture, 0, side), score});
-            }
+            score = ScoreCapture(C, capture);
+            globals[id].quiescence_moves[list_index].Add({encode_move(source, target, C, capture, 0, side), score});
         }
     }
 
@@ -2167,10 +2161,8 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
         moves = (GetOctaMoves(id, source) | GetCubeMoves(id, source)) & globals[id].Occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
-            if (capture != T) {
-                score = ScoreCapture(I, capture);
-                globals[id].quiescence_moves[list_index].Add({encode_move(source, target, I, capture, 0, side), score});
-            }
+            score = ScoreCapture(I, capture);
+            globals[id].quiescence_moves[list_index].Add({encode_move(source, target, I, capture, 0, side), score});
         }
     }
 
@@ -2481,7 +2473,7 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     return alpha;
 }
 
-static inline void Negamax(char id, int ply_depth, char side, int alpha, int beta) {
+static inline void RootSearch(char id, int ply_depth, char side, int alpha, int beta) {
     globals[id].total_depth = ply_depth;
 
     int score = 0;
@@ -2532,7 +2524,6 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
             globals[id].search_result.final_score = score;
             globals[id].search_result.final_move_key = move_key;
             globals[id].search_result.flag = FOUND_MOVE;
-           // globals[id].search_result.search_depth = ply_depth;
         }
     }
 
@@ -2549,7 +2540,7 @@ static inline void Negamax(char id, int ply_depth, char side, int alpha, int bet
     
 }
 
-static inline void IterativeDeepening(char id, int ply_depth, int initial_depth, char side) {
+static inline void Negamax(char id, int ply_depth, int initial_depth, char side) {
     int alpha = -INF;
     int beta = INF;
     int score = 0;
@@ -2558,8 +2549,8 @@ static inline void IterativeDeepening(char id, int ply_depth, int initial_depth,
         if (StopGame(id))
             break;
 
-        Negamax(id, current_depth, side, alpha, beta);
-        score = globals[id].search_result.final_score;
+        RootSearch(id, current_depth, side, alpha, beta);
+        /*score = globals[id].search_result.final_score;
 
         if (score <= alpha || score >= beta) { // score is outside window
            alpha = -INF;
@@ -2569,7 +2560,7 @@ static inline void IterativeDeepening(char id, int ply_depth, int initial_depth,
 
         //Alter aspiration windows
         alpha = score - 10;
-        beta = score + 10;
+        beta = score + 10;*/
     }
 }
 
@@ -2605,7 +2596,7 @@ static inline SearchResult FindBestMove(char side) {
     int initial_depth = 1;
     for (int id = 0; id < THREAD_COUNT; id++) {
         threads.emplace_back([id, ply_depth, initial_depth, side]{
-            IterativeDeepening(id, ply_depth, initial_depth, side);
+            Negamax(id, ply_depth, initial_depth, side);
         });
         initial_depth++;
     }
