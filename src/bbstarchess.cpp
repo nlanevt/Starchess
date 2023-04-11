@@ -2364,12 +2364,8 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
         }*/
 
         //Null Move Pruning
-        if (null_move) {
-            if (ply_depth >= 3)
-                score = -SubSearch(id, ply_depth - 3, list_index+1, !side, prev_key, false, p_eval, static_eval, -beta, -beta + 1);
-            else
-                score = -QSearch(id, QDEPTH, 0, !side, prev_key, -beta, -beta + 1);
-            
+        if (null_move && ply_depth >= 3) {
+            score = -SubSearch(id, ply_depth - 3, list_index+1, !side, prev_key, false, p_eval, static_eval, -beta, -beta + 1);
             if (score >= beta)
                 return beta;
         }
@@ -2543,24 +2539,12 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
 static inline void Negamax(char id, int ply_depth, int initial_depth, char side) {
     int alpha = -INF;
     int beta = INF;
-    int score = 0;
     
     for (int current_depth = initial_depth; current_depth <= ply_depth; current_depth++) {
         if (StopGame(id))
             break;
 
         RootSearch(id, current_depth, side, alpha, beta);
-        /*score = globals[id].search_result.final_score;
-
-        if (score <= alpha || score >= beta) { // score is outside window
-           alpha = -INF;
-           beta = INF;
-           continue; 
-        }
-
-        //Alter aspiration windows
-        alpha = score - 10;
-        beta = score + 10;*/
     }
 }
 
@@ -2573,7 +2557,7 @@ static inline SearchResult FindBestMove(char side) {
     threads.reserve(THREAD_COUNT);
     int ply_depth = DEPTH;
 
-    bool IsEndGame = Count(Occupancies[both]) <= 50;
+    bool IsEndGame = Count(Occupancies[both]) <= 30;
 
     //Reset global values
     for (int id = 0; id < THREAD_COUNT; id++) {
