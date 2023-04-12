@@ -413,8 +413,8 @@ Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
-const int MAX_DEPTH = 20; //12
-const int MAX_QDEPTH = 24; //12
+const int MAX_DEPTH = 20; //20
+const int MAX_QDEPTH = 24; //24
 int DEPTH = MAX_DEPTH; //8
 int QDEPTH = MAX_QDEPTH; //12
 /**********************************\
@@ -1033,7 +1033,7 @@ struct SearchResult {
     bool IsEndGame = false;
 };
 
-const size_t MAX_THREADS = 8; //4
+const size_t MAX_THREADS = 8; //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -1071,38 +1071,10 @@ Global globals[MAX_THREADS]; //GLOBAL
 //00001000000000000000000000000000
 #define get_move_side(move) ((move & 0x8000000) >> 27)
 
-inline Int343 GetValidTetraMoves(char id, char side, int block) {
-    Int343 result;
-    result.Bits[0] = (tetra_attacks[side][block].Bits[0] & globals[id].Occupancies[!side].Bits[0]) | (tetra_moves[side][block].Bits[0] ^ (tetra_moves[side][block].Bits[0] & globals[id].Occupancies[both].Bits[0]));
-    result.Bits[1] = (tetra_attacks[side][block].Bits[1] & globals[id].Occupancies[!side].Bits[1]) | (tetra_moves[side][block].Bits[1] ^ (tetra_moves[side][block].Bits[1] & globals[id].Occupancies[both].Bits[1]));
-    result.Bits[2] = (tetra_attacks[side][block].Bits[2] & globals[id].Occupancies[!side].Bits[2]) | (tetra_moves[side][block].Bits[2] ^ (tetra_moves[side][block].Bits[2] & globals[id].Occupancies[both].Bits[2]));
-    result.Bits[3] = (tetra_attacks[side][block].Bits[3] & globals[id].Occupancies[!side].Bits[3]) | (tetra_moves[side][block].Bits[3] ^ (tetra_moves[side][block].Bits[3] & globals[id].Occupancies[both].Bits[3]));
-    result.Bits[4] = (tetra_attacks[side][block].Bits[4] & globals[id].Occupancies[!side].Bits[4]) | (tetra_moves[side][block].Bits[4] ^ (tetra_moves[side][block].Bits[4] & globals[id].Occupancies[both].Bits[4]));
-    result.Bits[5] = (tetra_attacks[side][block].Bits[5] & globals[id].Occupancies[!side].Bits[5]) | (tetra_moves[side][block].Bits[5] ^ (tetra_moves[side][block].Bits[5] & globals[id].Occupancies[both].Bits[5]));
-    return result;
-}
 
-inline Int343 GetValidDodecaMoves(char id, char side, int block) {
-    Int343 result;
-    result.Bits[0] = dodeca_attacks[block].Bits[0] ^ (dodeca_attacks[block].Bits[0] & globals[id].Occupancies[side].Bits[0]);
-    result.Bits[1] = dodeca_attacks[block].Bits[1] ^ (dodeca_attacks[block].Bits[1] & globals[id].Occupancies[side].Bits[1]);
-    result.Bits[2] = dodeca_attacks[block].Bits[2] ^ (dodeca_attacks[block].Bits[2] & globals[id].Occupancies[side].Bits[2]);
-    result.Bits[3] = dodeca_attacks[block].Bits[3] ^ (dodeca_attacks[block].Bits[3] & globals[id].Occupancies[side].Bits[3]);
-    result.Bits[4] = dodeca_attacks[block].Bits[4] ^ (dodeca_attacks[block].Bits[4] & globals[id].Occupancies[side].Bits[4]);
-    result.Bits[5] = dodeca_attacks[block].Bits[5] ^ (dodeca_attacks[block].Bits[5] & globals[id].Occupancies[side].Bits[5]);
-    return result;
-}
-
-inline Int343 GetValidSphereMoves(char id, char side, int block) {
-    Int343 result;
-    result.Bits[0] = sphere_attacks[block].Bits[0] ^ (sphere_attacks[block].Bits[0] & globals[id].Occupancies[side].Bits[0]);
-    result.Bits[1] = sphere_attacks[block].Bits[1] ^ (sphere_attacks[block].Bits[1] & globals[id].Occupancies[side].Bits[1]);
-    result.Bits[2] = sphere_attacks[block].Bits[2] ^ (sphere_attacks[block].Bits[2] & globals[id].Occupancies[side].Bits[2]);
-    result.Bits[3] = sphere_attacks[block].Bits[3] ^ (sphere_attacks[block].Bits[3] & globals[id].Occupancies[side].Bits[3]);
-    result.Bits[4] = sphere_attacks[block].Bits[4] ^ (sphere_attacks[block].Bits[4] & globals[id].Occupancies[side].Bits[4]);
-    result.Bits[5] = sphere_attacks[block].Bits[5] ^ (sphere_attacks[block].Bits[5] & globals[id].Occupancies[side].Bits[5]);
-    return result;
-}
+#define GetValidTetraMoves(id, side, block) ((tetra_attacks[side][block] & globals[id].Occupancies[!side]) | (tetra_moves[side][block] ^ (tetra_moves[side][block] & globals[id].Occupancies[both])))
+#define GetValidDodecaMoves(id, side, block) (dodeca_attacks[block] ^ (dodeca_attacks[block] & globals[id].Occupancies[side]))
+#define GetValidSphereMoves(id, side, block) (sphere_attacks[block] ^ (sphere_attacks[block] & globals[id].Occupancies[side]))
 
 /*
 * Process:
@@ -1135,6 +1107,10 @@ inline Int343 GetCubeMoves(char id, int block) {
 
     return attacks;
 }
+
+#define GetTetraCaptures(id, side, block) (tetra_attacks[side][block] & globals[id].Occupancies[!side])
+#define GetDodecaCaptures(id, side, block) (dodeca_attacks[block] & globals[id].Occupancies[!side])
+#define GetSphereCaptures(id, side, block) (sphere_attacks[block] & globals[id].Occupancies[!side])
 
 inline Int343 GetPossibleTetraMoves(char side, int block) {
     return tetra_attacks[side][block] | tetra_moves[side][block];
@@ -1775,7 +1751,7 @@ inline int CountSafeAttacks(char id, char attacker, int sphere_block) {
     return count;
 }
 
-inline int Evaluation(char id, char side, bool in_check, bool full_eval) {
+inline int Evaluation(char id, char side, bool full_eval) {
     int block, score = 0; Int343 bitboard; Int343 moves;
 
     if (globals[id].IsEndGame) score += (side == white) ? 3 : -3; //Add points for tempo
@@ -1789,7 +1765,7 @@ inline int Evaluation(char id, char side, bool in_check, bool full_eval) {
     score += (Count(globals[id].Bitboards[I]) * material_score[I]); //Add the White Icosa material scores
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
         score += material_score[S]; score += position_scores[S][block]; 
-        if (in_check && full_eval && side == white) {
+        if (full_eval && side == white) {
             score -= (globals[id].IsEndGame) ? CountSafeAttacks(id, black, block) * 20 : CountSafeAttacks(id, black, block) * 10;
         }
     }
@@ -1802,7 +1778,7 @@ inline int Evaluation(char id, char side, bool in_check, bool full_eval) {
     score += (Count(globals[id].Bitboards[i]) * material_score[i]); //Add the Black Icosa material scores
     bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
         score += material_score[s]; score -= position_scores[S][mirror_score[block]]; 
-        if (in_check && full_eval && side == black) {
+        if (full_eval && side == black) {
             score += (globals[id].IsEndGame) ? CountSafeAttacks(id, white, block) * 20 : CountSafeAttacks(id, white, block) * 10;
         }
     }
@@ -2114,7 +2090,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
     //Tetras
     piece_set = globals[id].Bitboards[(side * 6) + T];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetValidTetraMoves(id, side, source) & globals[id].Occupancies[!side];
+        moves = GetTetraCaptures(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             score = ScoreCapture(T, capture);
@@ -2125,7 +2101,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
     //Dodecas
     piece_set = globals[id].Bitboards[(side * 6) + D];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
-        moves = GetValidDodecaMoves(id, side, source) & globals[id].Occupancies[!side];
+        moves = GetDodecaCaptures(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             score = ScoreCapture(D, capture);
@@ -2168,7 +2144,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
 
     //Sphere
     source = BitScan(side, globals[id].Bitboards[(side * 6) + S]);
-    moves = GetValidSphereMoves(id, side, source) & globals[id].Occupancies[!side];
+    moves = GetSphereCaptures(id, side, source);
     while ((target = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, target);
         score = ScoreCapture(S, capture);
@@ -2250,8 +2226,7 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
     if (ABORT_GAME) return 0;
     globals[id].NODES_SEARCHED++;
 
-    int sphere_source = GetSphereSource(id, side);
-    int score = Evaluation(id, side, is_block_attacked(id, sphere_source, !side), true);
+    int score = Evaluation(id, side, true);
 
     if (ply_depth <= 0 || TIMEOUT_STOPPED || list_index >= QDEPTH) return score;
     if (score < alpha + 1000) //Delta pruning
@@ -2262,6 +2237,7 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
 
     char type, capture, promotion; int source, target; long move; U64 move_key; TTEntry *tt_entry;
     int legal_moves = 0;
+    int sphere_source = GetSphereSource(id, side);
     for (int i = 0; i < globals[id].quiescence_moves[list_index].count; i++) {
         move = globals[id].quiescence_moves[list_index].moves[i].encoding;
         type = get_move_piece(move);
@@ -2336,7 +2312,7 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     int score = 0;
     int sphere_source = GetSphereSource(id, side);
     bool in_check = is_block_attacked(id, sphere_source, !side);
-    int static_eval = Evaluation(id, side, in_check, false);
+    int static_eval = Evaluation(id, side, false);
     bool improving = (static_eval - pp_eval) > 0;
     bool pvNode = beta - alpha > 1;
 
@@ -2479,7 +2455,7 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
     int legal_moves = 0;
     int sphere_source = GetSphereSource(id, side);
     bool in_check = is_block_attacked(id, sphere_source, !side);
-    int static_eval = Evaluation(id, side, in_check, false);
+    int static_eval = Evaluation(id, side, false);
 
     globals[id].pv_length[0] = 0;
 
