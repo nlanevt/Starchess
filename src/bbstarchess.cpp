@@ -2293,7 +2293,7 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
 
 //pp_eval = static eval from this sides last turn, so the turn before the last turn
 //p_eval = static eval from the last turn, so the opponents turn that led to this one.
-static inline int SubSearch(char id, int ply_depth, int list_index, char side, U64 prev_key, bool null_move, int pp_eval, int p_eval, int alpha, int beta) {
+static inline int SubSearch(char id, int ply_depth, int list_index, char side, U64 prev_key, bool null_move, int pp_eval, int p_eval, long prev_move, int alpha, int beta) {
      if (ABORT_GAME) return 0;
 
     //Set PV Length. This must occur here at the top.
@@ -2341,7 +2341,7 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
 
         //Null Move Pruning
         if (null_move && ply_depth >= 3) {
-            score = -SubSearch(id, ply_depth - 3, list_index+1, !side, prev_key, false, p_eval, static_eval, -beta, -beta + 1);
+            score = -SubSearch(id, ply_depth - 3, list_index+1, !side, prev_key, false, p_eval, static_eval, 0, -beta, -beta + 1);
             if (score >= beta)
                 return beta;
         }
@@ -2352,7 +2352,10 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     char type, capture, promotion; int source, target; long move; U64 move_key; TTEntry *tt_entry;
     int legal_moves = 0;
     int futility_move_count = FutilityMoveCount(improving, ply_depth);
-    int extensions = (in_check) ? 1 : 0;
+    //int extensions = (in_check) ? 1 : 0;
+    int extensions = 0;
+    int prev_target = get_move_target(prev_move); char prev_capture = get_move_capture(prev_move);
+
     for (int i = 0; i < globals[id].ordered_moves[list_index].count; i++) {
         move = globals[id].ordered_moves[list_index].moves[i].encoding;
         capture = get_move_capture(move);
@@ -2389,8 +2392,15 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
                 continue;
             }
 
+            extensions = 0;
+            if ((pvNode && prev_move != 0 && IsCapture(prev_capture) && target == prev_target) || 
+                (in_check)) {
+                extensions = 1;
+            }
+                
+
             if (legal_moves == 0) {//Do normal search on the first one
-                score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, -beta, -alpha);
+                score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, move, -beta, -alpha);
             }
             else { //Late Move Reduction (LMR)
                 if (!in_check &&
@@ -2399,15 +2409,15 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
                     ply_depth >= ReductionLimit &&
                     !IsCapture(capture) &&
                     promotion == 0)
-                    score = -SubSearch(id, ply_depth - 2, list_index+1, !side, move_key, true, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
+                    score = -SubSearch(id, ply_depth - 2, list_index+1, !side, move_key, true, p_eval, static_eval, move, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
                 else
                     score = alpha + 1;
 
                 // if found a better move during LMR then do PVS
                 if (score > alpha) { // re-search at full depth but with narrowed bandwitdh
-                    score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, -alpha - 1, -alpha);
+                    score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, move, -alpha - 1, -alpha);
                     if ((score > alpha) && (score < beta))
-                        score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, -beta, -alpha);
+                        score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, move, -beta, -alpha);
                 }
             }
 
@@ -2479,7 +2489,7 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
         move_key = GetTTKey(start_key, side, (side * 6) + type, capture, source, target);
 
         if (!IsRepeated(move_key))
-            score = -SubSearch(id, ply_depth-1, list_index+1, !side, move_key, true, 0, static_eval, -beta, -alpha);
+            score = -SubSearch(id, ply_depth-1, list_index+1, !side, move_key, true, 0, static_eval, 0, -beta, -alpha);
         else
             score = alpha;
 
@@ -2785,6 +2795,7 @@ void SelfPlay() {
 
             //Make the move just searched, if not a checkmate/stalemate
             MakeRealMove(SIDE, type, source, target); 
+
             SwitchTurnValues(search_result.final_move_key); //Switch sides
         }
     }
