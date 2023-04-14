@@ -2275,10 +2275,9 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
     if (ply_depth <= 0 || StopGame(id) || list_index >= QDEPTH) return score;
     
     bool PvNode = beta - alpha > 1;
-
     //Transposition Table Lookup
-    int ttValue = 0;
-    if (!PvNode && (ttValue = ReadHashTable(hash_key, ply_depth, alpha, beta)) != NO_HASH) {
+    int ttValue = ReadHashTable(hash_key, ply_depth, alpha, beta);
+    if (!PvNode && ttValue != NO_HASH) {
         return ttValue; 
     }
 
@@ -2351,10 +2350,11 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     globals[id].pv_length[ply] = ply;
 
     bool PvNode = beta - alpha > 1;
-    int score = 0;
+    
     //Transposition Table Lookup
-    if (!PvNode && (score = ReadHashTable(hash_key, ply_depth, alpha, beta)) != NO_HASH) {
-        return score; 
+    int ttValue = ReadHashTable(hash_key, ply_depth, alpha, beta);
+    if (!PvNode && ttValue != NO_HASH) {
+        return ttValue; 
     }
 
     if (ply_depth <= 0 || StopGame(id) || list_index >= DEPTH) return QSearch(id, QDEPTH, 0, side, hash_key, alpha, beta);
@@ -2366,6 +2366,7 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     if (beta > MATE_VALUE - (globals[id].total_depth - ply_depth) - 1) beta = MATE_VALUE - (globals[id].total_depth - ply_depth) - 1;
     if (alpha >= beta) return alpha;
     
+    int score = 0;
     int sphere_source = GetSphereSource(id, side);
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, false);
