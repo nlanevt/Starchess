@@ -89,6 +89,7 @@ enum {NO_MOVE, FOUND_MOVE};
 #define DRAW_GAME 102
 #define NO_CAPTURE 6
 #define NO_DIR 19
+#define NULL_MOVE 0
 
 // convert ASCII character pieces to encoded constants
 int char_pieces[] = {
@@ -1001,7 +1002,7 @@ struct OrderedMoves {
 
 struct SearchResult {
     long final_move = 0;
-    U64 final_move_key = 0;
+    U64 final_hash_key = 0;
     int final_score = 0;
     char thread_id = 0;
     char flag = 0;
@@ -1009,7 +1010,7 @@ struct SearchResult {
     
     void Clear() {
         final_move = 0;
-        final_move_key = 0;
+        final_hash_key = 0;
         final_score = 0;
         thread_id = 0;
         flag = NO_MOVE;
@@ -1215,6 +1216,10 @@ static inline void HandlePVMove(char id, int ply, long move) {
  
  ==================================
 \**********************************/
+//#define HASH_ALPHA 60000
+//#define HASH_BETA 70000
+ enum {HASH_ALPHA, HASH_BETA, HASH_EXACT};
+#define NO_HASH 80000
 
 U64 piece_keys[12][343]; //GLOBAL
 
@@ -1223,6 +1228,7 @@ struct TTEntry {
     uint16_t turn;
     uint8_t depth;
     int score;
+    char flag;
 };
 
 // hash table size
@@ -1259,7 +1265,15 @@ U64 BuildTranspositionKey() {
     return key;
 }
 
-static inline U64 GetTTKey(U64 initial_key, char side, char exact_type, char capture, int source, int target) {
+static inline U64 GetTTKey(U64 initial_key, long move) {
+    if (move == NULL_MOVE) return initial_key;
+
+    char side = get_move_side(move);
+    char exact_type = (side * 6) + get_move_piece(move);
+    char capture = get_move_capture(move);
+    int source = get_move_source(move);
+    int target = get_move_target(move);
+
     U64 trans_key = initial_key ^ side;
     trans_key = trans_key ^ (piece_keys[exact_type][source]) ^ (piece_keys[exact_type][target]);
     return (IsCapture(capture)) ? trans_key ^ (piece_keys[(side * 6) + capture][target]) : trans_key;
@@ -1274,19 +1288,53 @@ static inline TTEntry* GetTTEntry(U64 key) {
 //hash_key = prev_key ^ (piece_key + dst);
 void ClearTranspositionTable() {
     for (int i = 0; i < HASH_SIZE; i++) {
-        TransTable[i][0] = {0, 0, 0, 0};
-        TransTable[i][1] = {0, 0, 0, 0};
+        TransTable[i][0] = {0, 0, 0, 0, 0};
+        TransTable[i][1] = {0, 0, 0, 0, 0};
     }
 }
 
-static inline void WriteToHashTable(TTEntry * tt_entry, int ply_depth, U64 move_key, int score, int alpha, int beta) {
+int WRITE_COUNT = 0;
+int READ_COUNT = 0;
+
+static inline void WriteToHashTable(U64 hash_key, int ply_depth, int score, int alpha, int beta) {
     //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
-    if (tt_entry->turn != TURN || (tt_entry->key == move_key && ply_depth > tt_entry->depth)) {
-        tt_entry->key = move_key;
+    TTEntry * tt_entry = GetTTEntry(hash_key);
+    if (tt_entry->turn != TURN /*|| (tt_entry->key == hash_key && ply_depth > tt_entry->depth)*/) {
+        tt_entry->key = hash_key;
         tt_entry->turn = TURN;
         tt_entry->depth = ply_depth;
-        tt_entry->score = score;
+
+        if (score >= beta) {
+            tt_entry->score = beta;
+            tt_entry->flag = HASH_BETA;
+        }
+        else if (score > alpha) {
+            tt_entry->score = score;
+            tt_entry->flag = HASH_EXACT;
+        }
+        else {
+            tt_entry->score = alpha;
+            tt_entry->score = HASH_ALPHA;
+        }
     }
+}
+
+static inline int ReadHashTable(U64 hash_key, int ply_depth, int alpha, int beta) {
+    TTEntry * tt_entry = GetTTEntry(hash_key);
+    if (tt_entry->key == hash_key &&
+        tt_entry->turn == TURN &&
+        tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
+
+        if (tt_entry->flag == HASH_EXACT) return tt_entry->score;
+        if (tt_entry->flag == HASH_ALPHA && tt_entry->score <= alpha) return alpha;
+        if (tt_entry->flag == HASH_BETA && tt_entry->score >= beta) return beta;
+
+        /*if (tt_entry->score == HASH_ALPHA) return alpha;
+        else if (tt_entry->score == HASH_BETA) return beta;
+        else return tt_entry->score;*/
+    }
+
+    return NO_HASH;
 }
 
 /**********************************\
@@ -1791,10 +1839,11 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
         return 20000;
     }
     else if (IsCapture(capture)) {
+        //return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
         if (type <= capture) 
             return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
         else
-            return mvv_lva[type][capture] + 6000;
+            return mvv_lva[type][capture];
     }
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
         return 9000; //Made up number for promotion relative to the mvv_lva lookup table;
@@ -2217,20 +2266,33 @@ inline int FutilityMoveCount(bool improving, int depth) {
                      : (9 + depth * depth) / 2;
 }
 
-static inline int QSearch(char id, int ply_depth, int list_index, char side, U64 prev_key, int alpha, int beta) {
+static inline int QSearch(char id, int ply_depth, int list_index, char side, U64 hash_key, int alpha, int beta) {
     if (ABORT_GAME) return 0;
     globals[id].NODES_SEARCHED++;
 
     int score = Evaluation(id, side, true);
 
-    if (ply_depth <= 0 || TIMEOUT_STOPPED || list_index >= QDEPTH) return score;
-    if (score < alpha + 1000) //Delta pruning
-    if (score >= beta) return beta;
+    if (ply_depth <= 0 || StopGame(id) || list_index >= QDEPTH) return score;
+    
+    bool PvNode = beta - alpha > 1;
+
+    //Transposition Table Lookup
+    int ttValue = 0;
+    if (!PvNode && (ttValue = ReadHashTable(hash_key, ply_depth, alpha, beta)) != NO_HASH) {
+        return ttValue; 
+    }
+
+    int initial_alpha = alpha;
+    if (score >= beta) {
+        WriteToHashTable(hash_key, ply_depth, score, alpha, beta);
+        return beta;
+    }
+    if (score < alpha - 1000) return alpha;//Delta pruning
     if (score > alpha) alpha = score;
 
     GenerateCaptures(id, list_index, side);
-
-    char type, capture, promotion; int source, target; long move; U64 move_key; TTEntry *tt_entry;
+    
+    char type, capture, promotion; int source, target; long move; U64 new_key;
     int legal_moves = 0;
     int sphere_source = GetSphereSource(id, side);
     for (int i = 0; i < globals[id].quiescence_moves[list_index].count; i++) {
@@ -2239,40 +2301,31 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
         capture = get_move_capture(move);
         source = get_move_source(move);
         target = get_move_target(move);
-        move_key = GetTTKey(prev_key, side, (side * 6) + type, capture, source, target);
-        tt_entry = GetTTEntry(move_key);
+        promotion = get_move_promotion(move);
 
-        if (tt_entry->key == move_key &&
-            tt_entry->turn == TURN &&
-            tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
-            score = tt_entry->score;
+        //Move Count and Futility Pruning
+        if (promotion == 0) {
+            if (legal_moves > 6) continue;
+            if (score + material_score[capture] <= alpha) continue;
         }
-        else {
-            promotion = get_move_promotion(move);
 
-            //Move Count and Futility Pruning
-            if (promotion == 0) {
-                if (legal_moves > 6) continue;
-                if (score + material_score[capture] <= alpha) continue;
-            }
+        MakeKnownMove(id, side, type, capture, promotion, source, target);
 
-            MakeKnownMove(id, side, type, capture, promotion, source, target);
-
-            if (IsInCheck(id, side, type, target, sphere_source)) {
-                ReverseMove(id, side, type, capture, promotion, source, target);
-                continue;
-            }
-
-            score = -QSearch(id, ply_depth-1, list_index+1, !side, move_key, -beta, -alpha);
-
+        if (IsInCheck(id, side, type, target, sphere_source)) {
             ReverseMove(id, side, type, capture, promotion, source, target);
-
-            WriteToHashTable(tt_entry, ply_depth, move_key, score, alpha, beta);
+            continue;
         }
+
+        new_key = GetTTKey(hash_key, move);
+
+        score = -QSearch(id, ply_depth-1, list_index+1, !side, new_key, -beta, -alpha);
+
+        ReverseMove(id, side, type, capture, promotion, source, target);
 
         legal_moves++;
 
         if (score >= beta) {
+            WriteToHashTable(hash_key, ply_depth, score, alpha, beta);
             globals[id].quiescence_moves[list_index].Clear();
             return beta;
         }
@@ -2282,20 +2335,29 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
         }
     }
 
+    WriteToHashTable(hash_key, ply_depth, alpha, initial_alpha, beta);
+
     globals[id].quiescence_moves[list_index].Clear();
     return alpha;
 }
 
 //pp_eval = static eval from this sides last turn, so the turn before the last turn
 //p_eval = static eval from the last turn, so the opponents turn that led to this one.
-static inline int SubSearch(char id, int ply_depth, int list_index, char side, U64 prev_key, bool null_move, int pp_eval, int p_eval, int alpha, int beta) {
+static inline int SubSearch(char id, int ply_depth, int list_index, char side, U64 hash_key, bool null_move, int pp_eval, int p_eval, int alpha, int beta) {
      if (ABORT_GAME) return 0;
 
     //Set PV Length. This must occur here at the top.
     int ply = (list_index < DEPTH) ? list_index : DEPTH-1; //int ply = (ply_depth >= 0) ? total_depth - ply_depth : total_depth-1;
     globals[id].pv_length[ply] = ply;
 
-    if (ply_depth <= 0 || StopGame(id) || list_index >= DEPTH) return QSearch(id, QDEPTH, 0, side, prev_key, alpha, beta);
+    bool PvNode = beta - alpha > 1;
+    int score = 0;
+    //Transposition Table Lookup
+    if (!PvNode && (score = ReadHashTable(hash_key, ply_depth, alpha, beta)) != NO_HASH) {
+        return score; 
+    }
+
+    if (ply_depth <= 0 || StopGame(id) || list_index >= DEPTH) return QSearch(id, QDEPTH, 0, side, hash_key, alpha, beta);
 
     globals[id].NODES_SEARCHED++;
 
@@ -2303,18 +2365,16 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     if (alpha < -MATE_VALUE + (globals[id].total_depth - ply_depth)) alpha = -MATE_VALUE + (globals[id].total_depth - ply_depth);
     if (beta > MATE_VALUE - (globals[id].total_depth - ply_depth) - 1) beta = MATE_VALUE - (globals[id].total_depth - ply_depth) - 1;
     if (alpha >= beta) return alpha;
-
-    int score = 0;
+    
     int sphere_source = GetSphereSource(id, side);
     bool in_check = is_block_attacked(id, sphere_source, !side);
     int static_eval = Evaluation(id, side, false);
     bool improving = (static_eval - pp_eval) > 0;
-    bool pvNode = beta - alpha > 1;
-
-    if (!in_check && !pvNode) {
+    
+    if (!in_check && !PvNode) {
         //Razoring
         if (static_eval < alpha - 426 - 252 * ply_depth * ply_depth) { //Use 600 instead
-            score = QSearch(id, QDEPTH, 0, side, prev_key, alpha - 1, alpha);
+            score = QSearch(id, QDEPTH, 0, side, hash_key, alpha - 1, alpha);
             if (score < alpha)
                 return score;
         }
@@ -2326,17 +2386,9 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
             return static_eval;
         }
 
-        //Static Evaluation - Doesn't do much - Here for reference
-        /*if (ply_depth < 3 && !pvNode && !in_check && abs(beta - 1) > -INF + 100) {   
-            int eval_margin = 120 * ply_depth;
-            
-            if (static_eval - eval_margin >= beta)
-                return static_eval - eval_margin;
-        }*/
-
         //Null Move Pruning
         if (null_move && ply_depth >= 3) {
-            score = -SubSearch(id, ply_depth - 3, list_index+1, !side, prev_key, false, p_eval, static_eval, -beta, -beta + 1);
+            score = -SubSearch(id, ply_depth - 3, list_index+1, !side, hash_key, false, p_eval, static_eval, -beta, -beta + 1);
             if (score >= beta)
                 return beta;
         }
@@ -2344,7 +2396,8 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
 
     GenerateMoves(id, list_index, side);
 
-    char type, capture, promotion; int source, target; long move; U64 move_key; TTEntry *tt_entry;
+    int initial_alpha = alpha;
+    char type, capture, promotion; int source, target; long move; U64 new_key;
     int legal_moves = 0;
     int futility_move_count = FutilityMoveCount(improving, ply_depth);
     int extensions = (in_check) ? 1 : 0;
@@ -2355,63 +2408,52 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
         type = get_move_piece(move);
         source = get_move_source(move);
         target = get_move_target(move);
-        move_key = GetTTKey(prev_key, side, (side * 6) + type, capture, source, target);
-        tt_entry = GetTTEntry(move_key);
+        promotion = get_move_promotion(move);
 
-        if (tt_entry->key == move_key &&
-            tt_entry->turn == TURN &&
-            tt_entry->depth >= ply_depth && 
-            !pvNode) { //If the move chain already exists, then get that score
-            score = tt_entry->score;
-        }
-        else {
-            promotion = get_move_promotion(move);
-
-            //Early Pruning
-            if (!in_check && legal_moves > 0 && promotion == 0) {
-                if (IsCapture(capture)) { //Futility pruning for captures
-                    if (!pvNode && ply_depth < 6 && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
-                }
-                else {
-                    if (legal_moves >= futility_move_count && type != T) continue; //Move Count Pruning for quiet moves. Not dependent on pvNode
-                    if (!pvNode && ply_depth < 13 && static_eval + 103 + 138 * ply_depth <= alpha) continue;
-                }
+        //Early Pruning
+        if (!in_check && legal_moves > 0 && promotion == 0) {
+            if (IsCapture(capture)) { //Futility pruning for captures
+                if (!PvNode && ply_depth < 6 && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
             }
-            
-            MakeKnownMove(id, side, type, capture, promotion, source, target);
-
-            if (IsInCheck(id, side, type, target, sphere_source)) {
-                ReverseMove(id, side, type, capture, promotion, source, target);
-                continue;
+            else {
+                if (legal_moves >= futility_move_count && type != T) continue; //Move Count Pruning for quiet moves. Not dependent on PvNode
+                if (!PvNode && ply_depth < 13 && static_eval + 103 + 138 * ply_depth <= alpha) continue;
             }
-                
-            if (legal_moves == 0) {//Do normal search on the first one
-                score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, -beta, -alpha);
-            }
-            else { //Late Move Reduction (LMR)
-                if (!in_check &&
-                    !pvNode && 
-                    legal_moves >= FullDepthMoves &&
-                    ply_depth >= ReductionLimit &&
-                    !IsCapture(capture) &&
-                    promotion == 0)
-                    score = -SubSearch(id, ply_depth - 2, list_index+1, !side, move_key, true, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
-                else
-                    score = alpha + 1;
-
-                // if found a better move during LMR then do PVS
-                if (score > alpha) { // re-search at full depth but with narrowed bandwitdh
-                    score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, -alpha - 1, -alpha);
-                    if ((score > alpha) && (score < beta))
-                        score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, -beta, -alpha);
-                }
-            }
-
-            ReverseMove(id, side, type, capture, promotion, source, target);
-
-            WriteToHashTable(tt_entry, ply_depth, move_key, score, alpha, beta);
         }
         
+        MakeKnownMove(id, side, type, capture, promotion, source, target);
+
+        if (IsInCheck(id, side, type, target, sphere_source)) {
+            ReverseMove(id, side, type, capture, promotion, source, target);
+            continue;
+        }
+
+        new_key = GetTTKey(hash_key, move);
+            
+        if (legal_moves == 0) {//Do normal search on the first one
+            score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, new_key, true, p_eval, static_eval, -beta, -alpha);
+        }
+        else { //Late Move Reduction (LMR)
+            if (!in_check &&
+                !PvNode && 
+                legal_moves >= FullDepthMoves &&
+                ply_depth >= ReductionLimit &&
+                !IsCapture(capture) &&
+                promotion == 0)
+                score = -SubSearch(id, ply_depth - 2, list_index+1, !side, new_key, true, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
+            else
+                score = alpha + 1;
+
+            // if found a better move during LMR then do PVS
+            if (score > alpha) { // re-search at full depth but with narrowed bandwitdh
+                score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, new_key, true, p_eval, static_eval, -alpha - 1, -alpha);
+                if ((score > alpha) && (score < beta))
+                    score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, new_key, true, p_eval, static_eval, -beta, -alpha);
+            }
+        }
+
+        ReverseMove(id, side, type, capture, promotion, source, target);
+
         legal_moves++;
 
         if (score > alpha) {
@@ -2419,6 +2461,8 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
             HandlePVMove(id, ply, move);
 
             if (score >= beta) {
+                WriteToHashTable(hash_key, ply_depth, score, alpha, beta);
+
                 if (!IsCapture(capture)) {
                     globals[id].killer_moves[1][list_index] = globals[id].killer_moves[0][list_index];
                     globals[id].killer_moves[0][list_index] = move;
@@ -2438,6 +2482,8 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
         return (in_check) ? -MATE_VALUE + (globals[id].total_depth - ply_depth) : DRAW_VALUE;
     }
 
+    WriteToHashTable(hash_key, ply_depth, alpha, initial_alpha, beta);
+
     return alpha;
 }
 
@@ -2445,7 +2491,7 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
     globals[id].total_depth = ply_depth;
 
     int score = 0;
-    char type, capture, promotion; int source, target; long move; U64 move_key; 
+    char type, capture, promotion; int source, target; long move; U64 hash_key; 
     U64 start_key = BuildTranspositionKey();
     int list_index = 0;
     int legal_moves = 0;
@@ -2472,10 +2518,10 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
             continue;
         }
 
-        move_key = GetTTKey(start_key, side, (side * 6) + type, capture, source, target);
+        hash_key = GetTTKey(start_key, move);
 
-        if (!IsRepeated(move_key))
-            score = -SubSearch(id, ply_depth-1, list_index+1, !side, move_key, true, 0, static_eval, -beta, -alpha);
+        if (!IsRepeated(hash_key))
+            score = -SubSearch(id, ply_depth-1, list_index+1, !side, hash_key, true, 0, static_eval, -beta, -alpha);
         else
             score = alpha;
 
@@ -2490,7 +2536,7 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
 
             globals[id].search_result.final_move = move;
             globals[id].search_result.final_score = score;
-            globals[id].search_result.final_move_key = move_key;
+            globals[id].search_result.final_hash_key = hash_key;
             globals[id].search_result.flag = FOUND_MOVE;
         }
     }
@@ -2501,7 +2547,7 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
 
     if (legal_moves == 0) // we don't have any legal moves to make in the current postion
         globals[id].search_result.flag = (in_check) ? CHECKMATE : STALEMATE;
-    else if (IsDrawnGame(globals[id].search_result.final_move, globals[id].search_result.final_move_key))
+    else if (IsDrawnGame(globals[id].search_result.final_move, globals[id].search_result.final_hash_key))
         globals[id].search_result.flag = DRAW_GAME;
     else
         globals[id].search_result.flag = FOUND_MOVE;
@@ -2782,7 +2828,7 @@ void SelfPlay() {
             //Make the move just searched, if not a checkmate/stalemate
             MakeRealMove(SIDE, type, source, target); 
 
-            SwitchTurnValues(search_result.final_move_key); //Switch sides
+            SwitchTurnValues(search_result.final_hash_key); //Switch sides
         }
     }
 }
@@ -2869,7 +2915,8 @@ extern "C"
     DllExport void MakeBBMove(int side, int type, int source, int target) {
         U64 start_key = BuildTranspositionKey();
         char capture = MakeRealMove(side, type, source, target);
-        SwitchTurnValues(GetTTKey(start_key, side, (side * 6) + type, capture, source, target));
+        long move = encode_move(source, target, type, capture, 0, side);
+        SwitchTurnValues(GetTTKey(start_key, move));
     }
 
     DllExport long Search(int side) {
