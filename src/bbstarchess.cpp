@@ -81,15 +81,14 @@ enum { T, D, O, C, I, S, t, d, o, c, i, s };
 enum { white, black, both }; //Piece colors
 enum {NO_MOVE, FOUND_MOVE};
 
-const char CHECKMATE = 100;
-const char STALEMATE = 101;
-const char DRAW_GAME = 102;
-const char NO_CAPTURE = 6;
-const char NO_DIR = 19;
-
-const int MATE_VALUE = 49000;
-const int DRAW_VALUE = 0;
-const int INF = 50000;
+#define INF 50000
+#define MATE_VALUE 49000
+#define DRAW_VALUE 0
+#define CHECKMATE 100
+#define STALEMATE 101
+#define DRAW_GAME 102
+#define NO_CAPTURE 6
+#define NO_DIR 19
 
 // convert ASCII character pieces to encoded constants
 int char_pieces[] = {
@@ -413,8 +412,8 @@ Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
 int TURN = 1; //The current turn tracker //GLOBAL
 
-const int MAX_DEPTH = 20; //20
-const int MAX_QDEPTH = 24; //24
+#define MAX_DEPTH 20 //20
+#define MAX_QDEPTH 24 //24
 int DEPTH = MAX_DEPTH; //8
 int QDEPTH = MAX_QDEPTH; //12
 /**********************************\
@@ -968,7 +967,7 @@ void init_rays_directions_edges() {
  ==================================
 \**********************************/
 
-const size_t MAX_MOVE_COUNT_SIZE = 400;
+#define MAX_MOVE_COUNT_SIZE 400
 
 struct Move {
     long encoding;
@@ -1033,7 +1032,7 @@ struct SearchResult {
     bool IsEndGame = false;
 };
 
-const size_t MAX_THREADS = 8; //8
+#define MAX_THREADS 8 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -1829,8 +1828,8 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
  
  ==================================
 \**********************************/
-const size_t MAX_TURNS = 1000; //Cap on number of turns
-const size_t EMPTY_MOVE_THRESHOLD = 100;
+#define MAX_TURNS 1000 //Cap on number of turns
+#define EMPTY_MOVE_THRESHOLD 100
 OrderedMoves ordered_moves[MAX_DEPTH]; //GLOBAL
 OrderedMoves quiescence_moves[MAX_QDEPTH]; //GLOBAL
 U64 moves_list[MAX_TURNS]; //TODO: THere is likely an issue with how these are handled through Unity. On loaded games this information disappears
@@ -2159,13 +2158,9 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
  
  ==================================
 \**********************************/
-
-const int FullDepthMoves = 4; //4
-const int ReductionLimit = 3; //3
-//const long long TIME_LIMIT = 15000000; //15 seconds
-//const long long TIME_LIMIT = 4000000; //4 seconds
-const long long TIME_LIMIT = 4000000; //4 seconds
-
+#define FullDepthMoves 4
+#define ReductionLimit 2
+#define TIME_LIMIT 4000000 //4 seconds
 
 long NODES_SEARCHED = 0; //GLOBAL
 int FINAL_DEPTH = 0;
@@ -2353,6 +2348,7 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     int legal_moves = 0;
     int futility_move_count = FutilityMoveCount(improving, ply_depth);
     int extensions = (in_check) ? 1 : 0;
+
     for (int i = 0; i < globals[id].ordered_moves[list_index].count; i++) {
         move = globals[id].ordered_moves[list_index].moves[i].encoding;
         capture = get_move_capture(move);
@@ -2388,7 +2384,7 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
                 ReverseMove(id, side, type, capture, promotion, source, target);
                 continue;
             }
-
+                
             if (legal_moves == 0) {//Do normal search on the first one
                 score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, move_key, true, p_eval, static_eval, -beta, -alpha);
             }
@@ -2785,6 +2781,7 @@ void SelfPlay() {
 
             //Make the move just searched, if not a checkmate/stalemate
             MakeRealMove(SIDE, type, source, target); 
+
             SwitchTurnValues(search_result.final_move_key); //Switch sides
         }
     }
