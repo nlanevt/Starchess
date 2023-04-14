@@ -1329,13 +1329,26 @@ static inline int ReadHashTable(U64 hash_key, int ply_depth, int alpha, int beta
         if (tt_entry->flag == HASH_ALPHA && tt_entry->score <= alpha) return alpha;
         if (tt_entry->flag == HASH_BETA && tt_entry->score >= beta) return beta;
 
-        /*if (tt_entry->score == HASH_ALPHA) return alpha;
-        else if (tt_entry->score == HASH_BETA) return beta;
-        else return tt_entry->score;*/
     }
 
     return NO_HASH;
 }
+
+static inline int ReadTableValue(TTEntry * tt_entry, U64 hash_key, int alpha, int beta) {
+    if (tt_entry->key == hash_key &&
+        tt_entry->turn == TURN) { //If the move chain already exists, then get that score
+
+        if (tt_entry->flag == HASH_EXACT) return tt_entry->score;
+        if (tt_entry->flag == HASH_ALPHA && tt_entry->score <= alpha) return alpha;
+        if (tt_entry->flag == HASH_BETA && tt_entry->score >= beta) return beta;
+
+        //return tt_entry->score; //????
+    }
+
+    return NO_HASH;
+}
+
+#define GetTableValue(tt_entry, hash_key) ((tt_entry->key == hash_key && tt_entry->turn == TURN) ? tt_entry->score : NO_HASH)
 
 /**********************************\
  ==================================
@@ -2270,16 +2283,25 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
     if (ABORT_GAME) return 0;
     globals[id].NODES_SEARCHED++;
 
+    bool PvNode = beta - alpha > 1;
+
+    //Transposition Table Lookup
+    TTEntry * tt_entry = GetTTEntry(hash_key);
+    int ttValue = GetTableValue(tt_entry, hash_key);
+    if (!PvNode && tt_entry->depth >= ply_depth && ttValue != NO_HASH) {
+        if (tt_entry->flag == HASH_EXACT) return ttValue;
+        if (tt_entry->flag == HASH_ALPHA && ttValue <= alpha) return alpha;
+        if (tt_entry->flag == HASH_BETA && ttValue >= beta) return beta;
+    }
+
     int score = Evaluation(id, side, true);
 
+    // Note: ttValue at this point is no_hash AND a dpeth less than ply_depth, so not good enough for an
+    // early return, but still useful.
+    // We use ttValue as the evaluation if it is better.
+    if (ttValue != NO_HASH && ttValue > score) score = ttValue; 
+
     if (ply_depth <= 0 || StopGame(id) || list_index >= QDEPTH) return score;
-    
-    bool PvNode = beta - alpha > 1;
-    //Transposition Table Lookup
-    int ttValue = ReadHashTable(hash_key, ply_depth, alpha, beta);
-    if (!PvNode && ttValue != NO_HASH) {
-        return ttValue; 
-    }
 
     int initial_alpha = alpha;
     if (score >= beta) {
@@ -2331,6 +2353,7 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
 
         if (score > alpha) {
             alpha = score;
+            if (!PvNode) break; //In general, the best move won't go up in later (weaker) moves due to MVVLVA move ordering
         }
     }
 
@@ -2350,11 +2373,14 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     globals[id].pv_length[ply] = ply;
 
     bool PvNode = beta - alpha > 1;
-    
+
     //Transposition Table Lookup
-    int ttValue = ReadHashTable(hash_key, ply_depth, alpha, beta);
-    if (!PvNode && ttValue != NO_HASH) {
-        return ttValue; 
+    TTEntry * tt_entry = GetTTEntry(hash_key);
+    int ttValue = GetTableValue(tt_entry, hash_key);
+    if (!PvNode && tt_entry->depth >= ply_depth && ttValue != NO_HASH) {
+        if (tt_entry->flag == HASH_EXACT) return ttValue;
+        if (tt_entry->flag == HASH_ALPHA && ttValue <= alpha) return alpha;
+        if (tt_entry->flag == HASH_BETA && ttValue >= beta) return beta;
     }
 
     if (ply_depth <= 0 || StopGame(id) || list_index >= DEPTH) return QSearch(id, QDEPTH, 0, side, hash_key, alpha, beta);
@@ -2366,12 +2392,15 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     if (beta > MATE_VALUE - (globals[id].total_depth - ply_depth) - 1) beta = MATE_VALUE - (globals[id].total_depth - ply_depth) - 1;
     if (alpha >= beta) return alpha;
     
-    int score = 0;
     int sphere_source = GetSphereSource(id, side);
     bool in_check = is_block_attacked(id, sphere_source, !side);
+
     int static_eval = Evaluation(id, side, false);
+    if (ttValue != NO_HASH && ttValue > static_eval) static_eval = ttValue;
+
     bool improving = (static_eval - pp_eval) > 0;
     
+    int score = 0;
     if (!in_check && !PvNode) {
         //Razoring
         if (static_eval < alpha - 426 - 252 * ply_depth * ply_depth) { //Use 600 instead
