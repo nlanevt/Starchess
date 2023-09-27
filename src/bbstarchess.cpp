@@ -1035,7 +1035,7 @@ struct SearchResult {
     bool IsEndGame = false;
 };
 
-#define MAX_THREADS 1 //8
+#define MAX_THREADS 8 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -2019,17 +2019,11 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
         return 20000;
     }
     else if (IsCapture(capture)) {
-        //return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
-        /*if (type <= capture) 
-            return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
-        else
-            return mvv_lva[type][capture];*/
         int seeValue = See(id, side, type, capture, get_move_source(move), target);
         if (seeValue >= 0)
             return seeValue + ((promotion) ? 9000 : 8000);
         else
             return 0;
-        //return MaxValue(0, See(id, side, type, capture, get_move_source(move), target));
     }
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
         return 9000; //Made up number for promotion relative to the mvv_lva lookup table;
