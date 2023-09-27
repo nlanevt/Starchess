@@ -1035,7 +1035,7 @@ struct SearchResult {
     bool IsEndGame = false;
 };
 
-#define MAX_THREADS 8 //8
+#define MAX_THREADS 1 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -1951,7 +1951,8 @@ inline int Evaluation(char id, char side, bool full_eval) {
 }
 
 //Side is the attacking side.
-static inline char get_smallest_attacker(char id, Int343 &attacks, char side,  int block, Int343 octa_moves, Int343 cube_moves) {
+//attacks is changed to contain the set of attacks that could occur for the smallest attacker.
+static inline char get_smallest_attacker(char id, Int343 &attacks, char side,  int block) {
     
     // attacked by tetras
     attacks = (side == white) ? (tetra_attacks[black][block] & globals[id].Bitboards[T]) : (tetra_attacks[white][block] & globals[id].Bitboards[t]);
@@ -1962,10 +1963,12 @@ static inline char get_smallest_attacker(char id, Int343 &attacks, char side,  i
     if (IsSet(attacks)) return D;
 
     // attacked by octas
+    Int343 octa_moves = GetOctaMoves(id, block);
     attacks = octa_moves & ((side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
     if (IsSet(attacks)) return O;
 
     // attacked by Cube
+    Int343 cube_moves = GetCubeMoves(id, block);
     attacks = cube_moves & ((side == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]);
     if (IsSet(attacks)) return C;
 
@@ -1980,18 +1983,18 @@ static inline char get_smallest_attacker(char id, Int343 &attacks, char side,  i
     return -1;
 }
 
-static inline int SeeHelper(char id, char side, char piece, int target, Int343 octa_moves, Int343 cube_moves) {
+static inline int SeeHelper(char id, char side, char piece, int target) {
     int value, source;
-    Int343 attacks;
-    char attacker = get_smallest_attacker(id, attacks, !side, target, octa_moves, cube_moves);
-    value = 0;
     
+    Int343 attacks;
+    char attacker = get_smallest_attacker(id, attacks, side, target);
+    value = 0;
+
     if (attacker >= 0) {
         source = ForwardScanPop(&attacks);
-        printf("<%c|%d>", attacker, source);
         MakeCapture(id, side, attacker, piece, source, target);
         //value = MaxValue(0, material_score[piece] - SeeHelper(id, !side, attacker, target, octa_moves, cube_moves));
-        value = material_score[piece] - SeeHelper(id, !side, attacker, target, octa_moves, cube_moves);
+        value = material_score[piece] - SeeHelper(id, !side, attacker, target);
         ReverseCapture(id, side, attacker, piece, source, target);
     }
 
@@ -2002,12 +2005,10 @@ static inline int SeeHelper(char id, char side, char piece, int target, Int343 o
 //Needed for scoring captures. Returns a positive, negative or zero value.
 //Positive value is good, zero value is draw, and negative is bad
 static inline int See(char id, char side, char piece, char capture, int source, int target) {
-    printf("[");
     int value = 0;
     MakeKnownMove(id, side, piece, capture, 0, source, target);
-    value = SeeHelper(id, !side, piece, target, GetOctaMoves(id, target), GetCubeMoves(id, target));
+    value = SeeHelper(id, !side, piece, target);
     ReverseMove(id, side, piece, capture, 0, source, target);
-    printf("]");
     return value;
 }
 
