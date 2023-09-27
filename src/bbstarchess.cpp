@@ -400,6 +400,8 @@ static inline int BitScanReverse(Int343 bitboard) {
 
 #define BitScan(side, bitboard) (side == white ? BitScanReverse(bitboard) : BitScanForward(bitboard))
 
+#define MaxValue(a, b) (a >= b ? a : b)
+
 /**********************************\
  ==================================
  
@@ -1156,17 +1158,18 @@ static inline int GetCapture(char id, char side, int target) {
     return NO_CAPTURE;
 }
 
+//side = the attacking side
 inline bool is_block_attacked(char id, int block, char side) {
     Int343 octa_moves = GetOctaMoves(id, block);
     Int343 check = octa_moves & ((side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
     if (IsSet(check)) return true;
 
-    //attacked by Cube
+    // attacked by Cube
     Int343 cube_moves = GetCubeMoves(id, block);
     check = cube_moves & ((side == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]);
     if (IsSet(check)) return true;
 
-    //attacked by Icosa
+    // attacked by Icosa
     check = (cube_moves | octa_moves) & ((side == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]);
     if (IsSet(check)) return true;
 
@@ -1174,6 +1177,7 @@ inline bool is_block_attacked(char id, int block, char side) {
     check = dodeca_attacks[block] & ((side == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]);
     if (IsSet(check)) return true;
 
+    // attacked by tetras
     check = (side == white) ? (tetra_attacks[black][block] & globals[id].Bitboards[T]) 
                                    : (tetra_attacks[white][block] & globals[id].Bitboards[t]);
     if (IsSet(check)) return true;
@@ -1777,6 +1781,106 @@ static int mvv_lva[12][12] = {
     100, 200, 300, 400, 500, 600,  100, 200, 300, 400, 500, 600
 };
 
+//Used by UI and SelfPlay
+//Directly alters the global bitboards
+inline int MakeRealMove(char side, int attacker, int source, int target) {
+    if (attacker != T || !IsPromotion(side, target)) {
+        PopBit(Bitboards[(side*6) + attacker], source);
+        SetBit(Bitboards[(side*6) + attacker], target);
+    }
+    else {
+        PopBit(Bitboards[(side*6) + T], source); //Remove tetra from side at source
+        SetBit(Bitboards[(side*6) + I], target); //Add icosa to side at target
+    }
+    
+    PopBit(Occupancies[side], source);
+    SetBit(Occupancies[side], target);
+    PopBit(Occupancies[both], source);
+    SetBit(Occupancies[both], target);
+
+    for (int type = 0; type < 6; type++) {
+        if (GetBit(Bitboards[((!side)*6) + type], target)) {
+            PopBit(Bitboards[((!side)*6) + type], target);
+            PopBit(Occupancies[!side], target);
+            return type;
+        }
+    }
+    return 6;
+}
+
+//Used by engine
+//Alters the threaded bitboards
+inline void MakeKnownMove(char id, char side, int attacker, char capture, char promotion, int source, int target) {
+    if (!promotion) {
+        PopBit(globals[id].Bitboards[(side*6) + attacker], source);
+        SetBit(globals[id].Bitboards[(side*6) + attacker], target);
+    }
+    else {
+        PopBit(globals[id].Bitboards[(side*6) + T], source); //Remove tetra from side at source
+        SetBit(globals[id].Bitboards[(side*6) + I], target); //Add icosa to side at target
+    }
+    
+    PopBit(globals[id].Occupancies[side], source);
+    SetBit(globals[id].Occupancies[side], target);
+    PopBit(globals[id].Occupancies[both], source);
+    SetBit(globals[id].Occupancies[both], target);
+
+    if (IsCapture(capture)) {
+        PopBit(globals[id].Bitboards[((!side)*6) + capture], target);
+        PopBit(globals[id].Occupancies[!side], target);
+    }
+}
+
+//Used for SEE and other applications where capture is guaranteed
+inline void MakeCapture(char id, char side, int attacker, char capture, int source, int target) {
+    PopBit(globals[id].Bitboards[(side*6) + attacker], source);
+    SetBit(globals[id].Bitboards[(side*6) + attacker], target);
+
+    PopBit(globals[id].Occupancies[side], source);
+    SetBit(globals[id].Occupancies[side], target);
+    PopBit(globals[id].Occupancies[both], source);
+    SetBit(globals[id].Occupancies[both], target);
+
+    PopBit(globals[id].Bitboards[((!side)*6) + capture], target);
+    PopBit(globals[id].Occupancies[!side], target);
+}
+
+//Used for reversing a SEE known capture
+inline void ReverseCapture(char id, char side, int attacker, char capture, int source, int target) {
+    PopBit(globals[id].Bitboards[(side*6) + attacker], target);
+    SetBit(globals[id].Bitboards[(side*6) + attacker], source);
+    
+    PopBit(globals[id].Occupancies[side], target);
+    SetBit(globals[id].Occupancies[side], source);
+    PopBit(globals[id].Occupancies[both], target);
+    SetBit(globals[id].Occupancies[both], source);
+
+    SetBit(globals[id].Bitboards[((!side)*6) + capture], target);
+    SetBit(globals[id].Occupancies[!side], target);
+    SetBit(globals[id].Occupancies[both], target);
+}
+
+inline void ReverseMove(char id, char side, int attacker, char capture, char promotion, int source, int target) {
+    if (!promotion) {
+        PopBit(globals[id].Bitboards[(side*6) + attacker], target);
+        SetBit(globals[id].Bitboards[(side*6) + attacker], source);
+    }
+    else {
+        PopBit(globals[id].Bitboards[(side*6) + I], target); //Remove icosa from target
+        SetBit(globals[id].Bitboards[(side*6) + T], source); //Add tetra to source
+    }
+    
+    PopBit(globals[id].Occupancies[side], target);
+    SetBit(globals[id].Occupancies[side], source);
+    PopBit(globals[id].Occupancies[both], target);
+    SetBit(globals[id].Occupancies[both], source);
+    if (IsCapture(capture)) {
+        SetBit(globals[id].Bitboards[((!side)*6) + capture], target);
+        SetBit(globals[id].Occupancies[!side], target);
+        SetBit(globals[id].Occupancies[both], target);
+    }
+}
+
 inline int CountSafeAttacks(char id, char attacker, int sphere_block) {
     int block, count = 0; Int343 attackers;
     
@@ -1846,6 +1950,68 @@ inline int Evaluation(char id, char side, bool full_eval) {
     return score * ((side == white) ? 1 : -1);
 }
 
+//Side is the attacking side.
+static inline char get_smallest_attacker(char id, Int343 &attacks, char side,  int block, Int343 octa_moves, Int343 cube_moves) {
+    
+    // attacked by tetras
+    attacks = (side == white) ? (tetra_attacks[black][block] & globals[id].Bitboards[T]) : (tetra_attacks[white][block] & globals[id].Bitboards[t]);
+    if (IsSet(attacks)) return T;
+
+    // attacked by dodecas
+    attacks = dodeca_attacks[block] & ((side == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]);
+    if (IsSet(attacks)) return D;
+
+    // attacked by octas
+    attacks = octa_moves & ((side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
+    if (IsSet(attacks)) return O;
+
+    // attacked by Cube
+    attacks = cube_moves & ((side == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]);
+    if (IsSet(attacks)) return C;
+
+    // attacked by Icosa
+    attacks = (cube_moves | octa_moves) & ((side == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]);
+    if (IsSet(attacks)) return I;
+
+    // attacked by Sphere
+    attacks = sphere_attacks[block] & ((side == white) ? globals[id].Bitboards[S] : globals[id].Bitboards[s]);
+    if (IsSet(attacks)) return S;
+
+    return -1;
+}
+
+static inline int SeeHelper(char id, char side, char piece, int target, Int343 octa_moves, Int343 cube_moves) {
+    int value, source;
+    Int343 attacks;
+    char attacker = get_smallest_attacker(id, attacks, !side, target, octa_moves, cube_moves);
+    value = 0;
+    
+    if (attacker >= 0) {
+        source = ForwardScanPop(&attacks);
+        printf("<%c|%d>", attacker, source);
+        MakeCapture(id, side, attacker, piece, source, target);
+        //value = MaxValue(0, material_score[piece] - SeeHelper(id, !side, attacker, target, octa_moves, cube_moves));
+        value = material_score[piece] - SeeHelper(id, !side, attacker, target, octa_moves, cube_moves);
+        ReverseCapture(id, side, attacker, piece, source, target);
+    }
+
+    return value;
+}
+
+//Static Exchange Evaluation
+//Needed for scoring captures. Returns a positive, negative or zero value.
+//Positive value is good, zero value is draw, and negative is bad
+static inline int See(char id, char side, char piece, char capture, int source, int target) {
+    printf("[");
+    int value = 0;
+    MakeKnownMove(id, side, piece, capture, 0, source, target);
+    value = SeeHelper(id, !side, piece, target, GetOctaMoves(id, target), GetCubeMoves(id, target));
+    ReverseMove(id, side, piece, capture, 0, source, target);
+    printf("]");
+    return value;
+}
+
+
 static inline int ScoreMove(char id, int list_index, long move, char side, char type, char capture, char promotion, int target) {
     //If PV Move
     if (globals[id].pv_table[0][list_index] == move && move != 0) {
@@ -1853,10 +2019,16 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
     }
     else if (IsCapture(capture)) {
         //return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
-        if (type <= capture) 
+        /*if (type <= capture) 
             return mvv_lva[type][capture] + ((promotion) ? 9000 : 8000);
         else
-            return mvv_lva[type][capture];
+            return mvv_lva[type][capture];*/
+        int seeValue = See(id, side, type, capture, get_move_source(move), target);
+        if (seeValue >= 0)
+            return seeValue + ((promotion) ? 9000 : 8000);
+        else
+            return 0;
+        //return MaxValue(0, See(id, side, type, capture, get_move_source(move), target));
     }
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
         return 9000; //Made up number for promotion relative to the mvv_lva lookup table;
@@ -1886,7 +2058,7 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
 /**********************************\
  ==================================
  
-           Move Maker
+           Move Generation
  
  ==================================
 \**********************************/
@@ -1990,77 +2162,6 @@ bool IsDrawnGame(long move, U64 move_key) {
 
     
     return false;
-}
-
-//Used by UI and SelfPlay
-//Directly alters the global bitboards
-inline int MakeRealMove(char side, int attacker, int source, int target) {
-    if (attacker != T || !IsPromotion(side, target)) {
-        PopBit(Bitboards[(side*6) + attacker], source);
-        SetBit(Bitboards[(side*6) + attacker], target);
-    }
-    else {
-        PopBit(Bitboards[(side*6) + T], source); //Remove tetra from side at source
-        SetBit(Bitboards[(side*6) + I], target); //Add icosa to side at target
-    }
-    
-    PopBit(Occupancies[side], source);
-    SetBit(Occupancies[side], target);
-    PopBit(Occupancies[both], source);
-    SetBit(Occupancies[both], target);
-
-    for (int type = 0; type < 6; type++) {
-        if (GetBit(Bitboards[((!side)*6) + type], target)) {
-            PopBit(Bitboards[((!side)*6) + type], target);
-            PopBit(Occupancies[!side], target);
-            return type;
-        }
-    }
-    return 6;
-}
-
-//Used by engine
-//Alters the threaded bitboards
-inline void MakeKnownMove(char id, char side, int attacker, char capture, char promotion, int source, int target) {
-    if (!promotion) {
-        PopBit(globals[id].Bitboards[(side*6) + attacker], source);
-        SetBit(globals[id].Bitboards[(side*6) + attacker], target);
-    }
-    else {
-        PopBit(globals[id].Bitboards[(side*6) + T], source); //Remove tetra from side at source
-        SetBit(globals[id].Bitboards[(side*6) + I], target); //Add icosa to side at target
-    }
-    
-    PopBit(globals[id].Occupancies[side], source);
-    SetBit(globals[id].Occupancies[side], target);
-    PopBit(globals[id].Occupancies[both], source);
-    SetBit(globals[id].Occupancies[both], target);
-
-    if (IsCapture(capture)) {
-        PopBit(globals[id].Bitboards[((!side)*6) + capture], target);
-        PopBit(globals[id].Occupancies[!side], target);
-    }
-}
-
-inline void ReverseMove(char id, char side, int attacker, char capture, char promotion, int source, int target) {
-    if (!promotion) {
-        PopBit(globals[id].Bitboards[(side*6) + attacker], target);
-        SetBit(globals[id].Bitboards[(side*6) + attacker], source);
-    }
-    else {
-        PopBit(globals[id].Bitboards[(side*6) + I], target); //Remove icosa from target
-        SetBit(globals[id].Bitboards[(side*6) + T], source); //Add tetra to source
-    }
-    
-    PopBit(globals[id].Occupancies[side], target);
-    SetBit(globals[id].Occupancies[side], source);
-    PopBit(globals[id].Occupancies[both], target);
-    SetBit(globals[id].Occupancies[both], source);
-    if (IsCapture(capture)) {
-        SetBit(globals[id].Bitboards[((!side)*6) + capture], target);
-        SetBit(globals[id].Occupancies[!side], target);
-        SetBit(globals[id].Occupancies[both], target);
-    }
 }
 
 static inline void GenerateMoves(char id, int list_index, char side) {
@@ -2850,9 +2951,9 @@ void SelfPlay() {
         else {
             //Print out testing/logging info
             if (!log_only && !log_timed) printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
-            printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|SearchDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|PiecesLeft=%d|NodesSearched=%ld|Time=%s]%s\n",
+            printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|SearchDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|SeeValue=%d|Score=%d|Thread=%d|PiecesLeft=%d|NodesSearched=%ld|Time=%s]%s\n",
                     TURN, DEPTH, QDEPTH, FINAL_DEPTH, search_result.search_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, 
-                    (IsCapture(capture)) ? ascii_pieces[capture] : 'X', search_result.final_score, search_result.thread_id, 
+                    (IsCapture(capture)) ? ascii_pieces[capture] : 'X', See(0, SIDE, type, capture, source, target), search_result.final_score, search_result.thread_id, 
                     Count(Occupancies[both]), NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
 
             //Make the move just searched, if not a checkmate/stalemate
