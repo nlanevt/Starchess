@@ -1993,7 +1993,6 @@ static inline int SeeHelper(char id, char side, char piece, int target) {
     if (attacker >= 0) {
         source = ForwardScanPop(&attacks);
         MakeCapture(id, side, attacker, piece, source, target);
-        //value = MaxValue(0, material_score[piece] - SeeHelper(id, !side, attacker, target, octa_moves, cube_moves));
         value = material_score[piece] - SeeHelper(id, !side, attacker, target);
         ReverseCapture(id, side, attacker, piece, source, target);
     }
@@ -2023,7 +2022,7 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
         if (seeValue >= 0)
             return seeValue + ((promotion) ? 9000 : 8000);
         else
-            return 0;
+            return seeValue;
     }
     else if (promotion) { // Note: code possibly improve ordering through having a promotion + capture > promotion
         return 9000; //Made up number for promotion relative to the mvv_lva lookup table;
@@ -2379,7 +2378,7 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
     if (ABORT_GAME) return 0;
     globals[id].NODES_SEARCHED++;
 
-    bool PvNode = beta - alpha > 1;
+    const bool PvNode = beta - alpha > 1;
 
     //Transposition Table Lookup
     TTEntry * tt_entry = GetTTEntry(hash_key);
@@ -2390,28 +2389,29 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
         if (tt_entry->flag == HASH_BETA && ttValue >= beta) return beta;
     }
 
-    int score = Evaluation(id, side, true);
+    int static_eval = Evaluation(id, side, true);
 
     // Note: ttValue at this point is no_hash AND a dpeth less than ply_depth, so not good enough for an
     // early return, but still useful.
     // We use ttValue as the evaluation if it is better.
-    if (ttValue != NO_HASH && ttValue > score) score = ttValue; 
+    if (ttValue != NO_HASH && ttValue > static_eval) static_eval = ttValue; 
 
-    if (ply_depth <= 0 || StopGame(id) || list_index >= QDEPTH) return score;
+    if (ply_depth <= 0 || StopGame(id) || list_index >= QDEPTH) return static_eval;
 
     int initial_alpha = alpha;
-    if (score >= beta) {
-        WriteToHashTable(hash_key, ply_depth, score, alpha, beta);
+    if (static_eval >= beta) {
+        WriteToHashTable(hash_key, ply_depth, static_eval, alpha, beta);
         return beta;
     }
-    if (score < alpha - 1000) return alpha;//Delta pruning
-    if (score > alpha) alpha = score;
+    if (static_eval < alpha - 1000) return alpha;//Delta pruning
+    if (static_eval > alpha) alpha = static_eval;
 
     GenerateCaptures(id, list_index, side);
     
     char type, capture, promotion; int source, target; long move; U64 new_key;
-    int legal_moves = 0;
     int sphere_source = GetSphereSource(id, side);
+    int legal_moves = 0;
+    int score = 0;
     for (int i = 0; i < globals[id].quiescence_moves[list_index].count; i++) {
         move = globals[id].quiescence_moves[list_index].moves[i].encoding;
         type = get_move_piece(move);
@@ -2422,8 +2422,8 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
 
         //Move Count and Futility Pruning
         if (promotion == 0) {
-            if (legal_moves > 6) continue;
-            if (score + material_score[capture] <= alpha) continue;
+            if (legal_moves > 9) continue; //standard is currently 6
+            if (static_eval + material_score[capture] <= alpha) continue; //if static evaluation + material value is too low, then prune
         }
 
         MakeKnownMove(id, side, type, capture, promotion, source, target);
@@ -2468,7 +2468,7 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     int ply = (list_index < DEPTH) ? list_index : DEPTH-1; //int ply = (ply_depth >= 0) ? total_depth - ply_depth : total_depth-1;
     globals[id].pv_length[ply] = ply;
 
-    bool PvNode = beta - alpha > 1;
+    const bool PvNode = beta - alpha > 1;
 
     //Transposition Table Lookup
     TTEntry * tt_entry = GetTTEntry(hash_key);
@@ -2540,10 +2540,12 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
         if (!in_check && legal_moves > 0 && promotion == 0) {
             if (IsCapture(capture)) { //Futility pruning for captures
                 if (!PvNode && ply_depth < 6 && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
+                if (!PvNode && globals[id].ordered_moves[list_index].moves[i].score < -205 * ply_depth) continue; //prune bad SEE captures; //find a way to store this
             }
             else {
                 if (legal_moves >= futility_move_count && type != T) continue; //Move Count Pruning for quiet moves. Not dependent on PvNode
                 if (!PvNode && ply_depth < 13 && static_eval + 103 + 138 * ply_depth <= alpha) continue;
+                //if (!PvNode && ply_depth < 3 && See(id, side, type, capture, source, target) < 0) continue; //prune moves with negative SEE
             }
         }
         
