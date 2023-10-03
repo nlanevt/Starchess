@@ -413,7 +413,7 @@ static inline int BitScanReverse(Int343 bitboard) {
 Int343 Bitboards[12]; //piece bitboards //GLOBAL
 Int343 Occupancies[3]; //occupancy bitboards //GLOBAL
 char SIDE = 0; //side to move //GLOBAL
-int TURN = 1; //The current turn tracker //GLOBAL
+int TURN = 0; //The current turn tracker //GLOBAL
 
 #define MAX_DEPTH 20 //20
 #define MAX_QDEPTH 24 //24
@@ -534,7 +534,7 @@ void print_full_board() {
     bool piece_found = false;
     printf("\n");
     
-    printf("Turn %d = %s\n", TURN, SIDE ? "Black" : "White");
+    printf("Turn %d = %s\n", TURN+1, SIDE ? "Black" : "White");
     for (int depth = 6; depth >= 0; depth--) {
         printf("%c", ZSymbols[depth]);
 
@@ -1035,7 +1035,7 @@ struct SearchResult {
     bool IsEndGame = false;
 };
 
-#define MAX_THREADS 12 //8
+#define MAX_THREADS 8 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -1297,15 +1297,15 @@ void ClearTranspositionTable() {
     }
 }
 
-int WRITE_COUNT = 0;
-int READ_COUNT = 0;
+//We add by one so its checked as not emptry, i.e. non-zero
+#define IsSameTurn(tt_entry) (tt_entry->turn == TURN+1)
 
 static inline void WriteToHashTable(U64 hash_key, int ply_depth, int score, int alpha, int beta) {
     //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
     TTEntry * tt_entry = GetTTEntry(hash_key);
-    if (tt_entry->turn != TURN) {
+    if (!IsSameTurn(tt_entry)) {
         tt_entry->key = hash_key;
-        tt_entry->turn = TURN;
+        tt_entry->turn = TURN+1; //Add by one so its stored as non-zero, hence not empty
         tt_entry->depth = ply_depth;
 
         if (score >= beta) {
@@ -1326,7 +1326,7 @@ static inline void WriteToHashTable(U64 hash_key, int ply_depth, int score, int 
 static inline int ReadHashTable(U64 hash_key, int ply_depth, int alpha, int beta) {
     TTEntry * tt_entry = GetTTEntry(hash_key);
     if (tt_entry->key == hash_key &&
-        tt_entry->turn == TURN &&
+        IsSameTurn(tt_entry) &&
         tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
 
         if (tt_entry->flag == HASH_EXACT) return tt_entry->score;
@@ -1340,19 +1340,16 @@ static inline int ReadHashTable(U64 hash_key, int ply_depth, int alpha, int beta
 
 static inline int ReadTableValue(TTEntry * tt_entry, U64 hash_key, int alpha, int beta) {
     if (tt_entry->key == hash_key &&
-        tt_entry->turn == TURN) { //If the move chain already exists, then get that score
-
+        IsSameTurn(tt_entry)) { //If the move chain already exists, then get that score
         if (tt_entry->flag == HASH_EXACT) return tt_entry->score;
         if (tt_entry->flag == HASH_ALPHA && tt_entry->score <= alpha) return alpha;
         if (tt_entry->flag == HASH_BETA && tt_entry->score >= beta) return beta;
-
-        //return tt_entry->score; //????
     }
 
     return NO_HASH;
 }
 
-#define GetTableValue(tt_entry, hash_key) ((tt_entry->key == hash_key && tt_entry->turn == TURN) ? tt_entry->score : NO_HASH)
+#define GetTableValue(tt_entry, hash_key) ((tt_entry->key == hash_key && IsSameTurn(tt_entry)) ? tt_entry->score : NO_HASH)
 
 /**********************************\
  ==================================
@@ -2094,7 +2091,7 @@ static inline void AddToTurnList(Turn turn) {
 }
 
 static inline bool IsRepeated(U64 new_position) {
-    if (TURN > 4 && (new_position == turn_list[TURN-4].key || new_position == turn_list[TURN-6].key || new_position == turn_list[TURN-8].key)) {
+    if (TURN >= 7 && (new_position == turn_list[TURN-3].key || new_position == turn_list[TURN-5].key || new_position == turn_list[TURN-7].key)) {
         return true;
     }
 
@@ -2125,7 +2122,7 @@ bool IsEmptyMoveRule(long move) {
         fifty_rule = true;
         int cap = 0;
         char type, capture;
-        for (int i = (TURN < MAX_TURNS) ? TURN-2 : MAX_TURNS-1; cap < EMPTY_MOVE_THRESHOLD && i >= 0; i--, cap++) {
+        for (int i = (TURN < MAX_TURNS) ? TURN-1 : MAX_TURNS-1; cap < EMPTY_MOVE_THRESHOLD && i >= 0; i--, cap++) {
             type = get_move_piece(turn_list[i].move);
             capture = get_move_capture(turn_list[i].move);
             if (type == T || IsCapture(capture)) {
@@ -2814,7 +2811,7 @@ void init_variables()
     AVERAGE_SEARCH_TIME = 0;
     MAX_SEARCH_TIME = 0;
     TIMEOUT_COUNT = 0;
-    TURN = 1;
+    TURN = 0;
 }
 
 
@@ -2841,7 +2838,12 @@ void TestBitBoards() {
 }
 
 void PrintEndGameMetrics(bool SelfPlay) {
-    AVERAGE_SEARCH_TIME = (SelfPlay) ? AVERAGE_SEARCH_TIME / TURN : AVERAGE_SEARCH_TIME / (TURN / 2);
+    if (TURN > 0) {
+        AVERAGE_SEARCH_TIME = (SelfPlay) ? AVERAGE_SEARCH_TIME / TURN : AVERAGE_SEARCH_TIME / (TURN / 2);
+    }
+    else {
+        AVERAGE_SEARCH_TIME = 0;
+    }
     printf("TurnCount=%d\n", TURN);
     printf("WhitePieces=%d\n", Count(Occupancies[white]));
     printf("BlackPieces=%d\n", Count(Occupancies[black]));
@@ -3189,6 +3191,8 @@ extern "C"
     }
 
     DllExport bool CheckDrawnGame() {
+        if (TURN <= 0) return false;
+
         TURN--; //Hack to get the last turn and allow the IsDrawnGame methods to work.
         Turn last_turn = turn_list[TURN];
         bool is_draw = IsDrawnGame(last_turn);
@@ -3260,7 +3264,9 @@ extern "C"
         AddToTurnList({key, move});
     }
 
-
+    DllExport int GetTurn() {
+        return TURN;
+    }
 }
 
 /*
