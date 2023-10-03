@@ -1035,7 +1035,7 @@ struct SearchResult {
     bool IsEndGame = false;
 };
 
-#define MAX_THREADS 8 //8
+#define MAX_THREADS 12 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -1077,7 +1077,7 @@ Global globals[MAX_THREADS]; //GLOBAL
 #define GetValidTetraMoves(id, side, block) ((tetra_attacks[side][block] & globals[id].Occupancies[!side]) | (tetra_moves[side][block] ^ (tetra_moves[side][block] & globals[id].Occupancies[both])))
 #define GetValidDodecaMoves(id, side, block) (dodeca_attacks[block] ^ (dodeca_attacks[block] & globals[id].Occupancies[side]))
 #define GetValidSphereMoves(id, side, block) (sphere_attacks[block] ^ (sphere_attacks[block] & globals[id].Occupancies[side]))
-
+#define IsNullMove(move) ((move << 5) == 0)
 /*
 * Process:
 * 1.) attacks = octa/cube edges if they exist
@@ -1303,7 +1303,7 @@ int READ_COUNT = 0;
 static inline void WriteToHashTable(U64 hash_key, int ply_depth, int score, int alpha, int beta) {
     //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
     TTEntry * tt_entry = GetTTEntry(hash_key);
-    if (tt_entry->turn != TURN /*|| (tt_entry->key == hash_key && ply_depth > tt_entry->depth)*/) {
+    if (tt_entry->turn != TURN) {
         tt_entry->key = hash_key;
         tt_entry->turn = TURN;
         tt_entry->depth = ply_depth;
@@ -1781,33 +1781,6 @@ static int mvv_lva[12][12] = {
     100, 200, 300, 400, 500, 600,  100, 200, 300, 400, 500, 600
 };
 
-//Used by UI and SelfPlay
-//Directly alters the global bitboards
-inline int MakeRealMove(char side, int attacker, int source, int target) {
-    if (attacker != T || !IsPromotion(side, target)) {
-        PopBit(Bitboards[(side*6) + attacker], source);
-        SetBit(Bitboards[(side*6) + attacker], target);
-    }
-    else {
-        PopBit(Bitboards[(side*6) + T], source); //Remove tetra from side at source
-        SetBit(Bitboards[(side*6) + I], target); //Add icosa to side at target
-    }
-    
-    PopBit(Occupancies[side], source);
-    SetBit(Occupancies[side], target);
-    PopBit(Occupancies[both], source);
-    SetBit(Occupancies[both], target);
-
-    for (int type = 0; type < 6; type++) {
-        if (GetBit(Bitboards[((!side)*6) + type], target)) {
-            PopBit(Bitboards[((!side)*6) + type], target);
-            PopBit(Occupancies[!side], target);
-            return type;
-        }
-    }
-    return 6;
-}
-
 //Used by engine
 //Alters the threaded bitboards
 inline void MakeKnownMove(char id, char side, int attacker, char capture, char promotion, int source, int target) {
@@ -1881,38 +1854,71 @@ inline void ReverseMove(char id, char side, int attacker, char capture, char pro
     }
 }
 
-inline int CountSafeAttacks(char id, char attacker, int sphere_block) {
-    int block, count = 0; Int343 attackers;
+inline Int343 GetAttacksTo(char id, char attacking_side, int block) {
+    Int343 attacks = (attacking_side == white) ? ((tetra_attacks[black][block] & globals[id].Bitboards[T]) | 
+                                                  (dodeca_attacks[block] & globals[id].Bitboards[D]) |
+                                                  (GetOctaMoves(id, block) & (globals[id].Bitboards[O] | globals[id].Bitboards[I])) |
+                                                  (GetCubeMoves(id, block) & (globals[id].Bitboards[C] | globals[id].Bitboards[I])) |
+                                                  (sphere_attacks[block] & globals[id].Bitboards[S])) :
+                                                 ((tetra_attacks[white][block] & globals[id].Bitboards[t]) | 
+                                                  (dodeca_attacks[block] & globals[id].Bitboards[d]) |
+                                                  (GetOctaMoves(id, block) & (globals[id].Bitboards[o] | globals[id].Bitboards[i])) |
+                                                  (GetCubeMoves(id, block) & (globals[id].Bitboards[c] | globals[id].Bitboards[i])) |
+                                                  (sphere_attacks[block] & globals[id].Bitboards[s]));
+
+
+    return attacks;
+}
+
+inline bool SafeCheckExists(char id, char attacking_side, int sphere_block) {
+    int block; Int343 attackers;
     
     //Attacked by Octas
     Int343 octa_moves = GetOctaMoves(id, sphere_block);
     octa_moves ^= (octa_moves & sphere_attacks[sphere_block]);
-    attackers = octa_moves & ((attacker == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
+    attackers = octa_moves & ((attacking_side == white) ? globals[id].Bitboards[O] : globals[id].Bitboards[o]);
     while((block = ForwardScanPop(&attackers)) >= 0) {
-        if (!is_block_attacked(id, block, !attacker)) count++;
+        if (!is_block_attacked(id, block, !attacking_side)) return true;
     }
 
     //attacked by Cube
     Int343 cube_moves = GetCubeMoves(id, sphere_block);
     cube_moves ^= (cube_moves & sphere_attacks[sphere_block]);
-    attackers = cube_moves & ((attacker == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]);
+    attackers = cube_moves & ((attacking_side == white) ? globals[id].Bitboards[C] : globals[id].Bitboards[c]);
     while((block = ForwardScanPop(&attackers)) >= 0) {
-        if (!is_block_attacked(id, block, !attacker)) count++;
+        if (!is_block_attacked(id, block, !attacking_side)) return true;
     }
 
     //attacked by Icosa  
-    attackers = (cube_moves | octa_moves) & ((attacker == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]);
+    attackers = (cube_moves | octa_moves) & ((attacking_side == white) ? globals[id].Bitboards[I] : globals[id].Bitboards[i]);
     while((block = ForwardScanPop(&attackers)) >= 0) {
-        if (!is_block_attacked(id, block, !attacker)) count++;
+        if (!is_block_attacked(id, block, !attacking_side)) return true;
     }
 
     // attacked by dodecas
-    attackers = dodeca_attacks[sphere_block] & ((attacker == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]);
+    attackers = dodeca_attacks[sphere_block] & ((attacking_side == white) ? globals[id].Bitboards[D] : globals[id].Bitboards[d]);
     while((block = ForwardScanPop(&attackers)) >= 0) {
-        if (!is_block_attacked(id, block, !attacker)) count++;
+        if (!is_block_attacked(id, block, !attacking_side)) return true;
     }
 
-    return count;
+    return false;
+}
+
+inline int CountSafeSphereRegionAttacks(char id, char attacking_side, int sphere_block) {
+    Int343 sphere_region = sphere_attacks[sphere_block];
+    SetBit(sphere_region, sphere_block);
+
+    Int343 attackers;
+    int block, attack, safe_attacks = 0, sphere_attacks_count = Count(sphere_region);
+
+    while ((block = ForwardScanPop(&sphere_region)) >= 0) {
+        attackers = GetAttacksTo(id, attacking_side,  block);
+        if ((attack = ForwardScanPop(&attackers)) >= 0) {
+            if (!is_block_attacked(id, attack, !attacking_side)) safe_attacks++;
+        } 
+    }
+
+    return (safe_attacks * 100) / sphere_attacks_count;
 }
 
 inline int Evaluation(char id, char side, bool full_eval) {
@@ -1922,7 +1928,12 @@ inline int Evaluation(char id, char side, bool full_eval) {
     else score += (side == white) ? 10 : -10; //Add points for tempo
 
     //Add white scores --------------------------------------------------------------------------------------------------------------------
-    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {score += material_score[T]; score += position_scores[T][block]; score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 10 : 0; }
+    bitboard = globals[id].Bitboards[T]; while((block = ForwardScanPop(&bitboard)) >= 0) {
+        score += material_score[T]; score += position_scores[T][block]; 
+        if (full_eval) {
+            score -= (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[T]))) ? 10 : 0; 
+        }
+    }
     bitboard = globals[id].Bitboards[D]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[D]; score += position_scores[D][block];}
     bitboard = globals[id].Bitboards[O]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[O]; score += position_scores[O][block]; }
     bitboard = globals[id].Bitboards[C]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[C]; score += position_scores[C][block]; }
@@ -1930,12 +1941,18 @@ inline int Evaluation(char id, char side, bool full_eval) {
     bitboard = globals[id].Bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
         score += material_score[S]; score += position_scores[S][block]; 
         if (full_eval && side == white) {
-            score -= (globals[id].IsEndGame) ? CountSafeAttacks(id, black, block) * 20 : CountSafeAttacks(id, black, block) * 10;
+            //score -= (globals[id].IsEndGame) ? SafeCheckExists(id, black, block) * 10 : SafeCheckExists(id, black, block) * 7;
+            score -= (globals[id].IsEndGame) ? CountSafeSphereRegionAttacks(id, black, block) : SafeCheckExists(id, black, block) * 7;
         }
     }
 
     //Subtract black scores (material_score contains negative values) ----------------------------------------------------------------------
-    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) {score += material_score[t]; score -= position_scores[T][mirror_score[block]]; score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 10 : 0;}
+    bitboard = globals[id].Bitboards[t]; while((block = ForwardScanPop(&bitboard)) >= 0) {score += material_score[t]; 
+        score -= position_scores[T][mirror_score[block]]; 
+        if (full_eval) {
+            score += (!IsSet((tetra_isolation_masks[block % 49] & globals[id].Bitboards[t]))) ? 10 : 0;
+        }
+    }
     bitboard = globals[id].Bitboards[d]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[d]; score -= position_scores[D][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[o]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[o]; score -= position_scores[O][mirror_score[block]]; }
     bitboard = globals[id].Bitboards[c]; while((block = ForwardScanPop(&bitboard)) >= 0) { score += material_score[c]; score -= position_scores[C][mirror_score[block]]; }
@@ -1943,7 +1960,8 @@ inline int Evaluation(char id, char side, bool full_eval) {
     bitboard = globals[id].Bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
         score += material_score[s]; score -= position_scores[S][mirror_score[block]]; 
         if (full_eval && side == black) {
-            score += (globals[id].IsEndGame) ? CountSafeAttacks(id, white, block) * 20 : CountSafeAttacks(id, white, block) * 10;
+            //score += (globals[id].IsEndGame) ? SafeCheckExists(id, white, block) * 10 : SafeCheckExists(id, white, block) * 7;
+            score += (globals[id].IsEndGame) ? CountSafeSphereRegionAttacks(id, white, block) : SafeCheckExists(id, white, block) * 7;
         }
     }
 
@@ -2057,19 +2075,26 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
  ==================================
 \**********************************/
 #define MAX_TURNS 1000 //Cap on number of turns
-#define EMPTY_MOVE_THRESHOLD 100
+#define EMPTY_MOVE_THRESHOLD 50
 OrderedMoves ordered_moves[MAX_DEPTH]; //GLOBAL
 OrderedMoves quiescence_moves[MAX_QDEPTH]; //GLOBAL
-U64 moves_list[MAX_TURNS]; //TODO: THere is likely an issue with how these are handled through Unity. On loaded games this information disappears
 
-static inline void AddToMoveList(U64 move_key) {
+struct Turn {
+    U64 key;
+    long move;
+};
+
+Turn turn_list[MAX_TURNS]; //TODO: THere is likely an issue with how these are handled through Unity. On loaded games this information disappears
+
+static inline void AddToTurnList(Turn turn) {
     if (TURN < MAX_TURNS) {
-        moves_list[TURN] = move_key;
+        turn_list[TURN] = turn;
+        TURN++;
     }
 }
 
 static inline bool IsRepeated(U64 new_position) {
-    if (TURN > 4 && (new_position == moves_list[TURN-4] || new_position == moves_list[TURN-6] || new_position == moves_list[TURN-8])) {
+    if (TURN > 4 && (new_position == turn_list[TURN-4].key || new_position == turn_list[TURN-6].key || new_position == turn_list[TURN-8].key)) {
         return true;
     }
 
@@ -2082,7 +2107,7 @@ bool IsThreefoldRepetition(U64 move_key) {
     //threefold repetition
     int repetition_counter = 0;
     for (int i = (TURN < MAX_TURNS) ? TURN-2 : (MAX_TURNS / 4); i >= 0; i--) {
-        if (move_key == moves_list[i]) repetition_counter++;
+        if (move_key == turn_list[i].key) repetition_counter++;
         if (repetition_counter >= 3) {
             return true;
         }
@@ -2101,8 +2126,8 @@ bool IsEmptyMoveRule(long move) {
         int cap = 0;
         char type, capture;
         for (int i = (TURN < MAX_TURNS) ? TURN-2 : MAX_TURNS-1; cap < EMPTY_MOVE_THRESHOLD && i >= 0; i--, cap++) {
-            type = get_move_piece(moves_list[i]);
-            capture = get_move_capture(moves_list[i]);
+            type = get_move_piece(turn_list[i].move);
+            capture = get_move_capture(turn_list[i].move);
             if (type == T || IsCapture(capture)) {
                 fifty_rule = false;
                 break;
@@ -2142,14 +2167,14 @@ bool IsInsufficientMaterial() {
     return true;
 }
 
-bool IsDrawnGame(long move, U64 move_key) {
+bool IsDrawnGame(Turn turn) {
     if (TURN >= MAX_TURNS) return true;
 
     //threefold repetition
-    if (IsThreefoldRepetition(move_key)) return true;
+    if (IsThreefoldRepetition(turn.key)) return true;
 
     //fifty move rule: if after fifty moves no pawn was moved and no captures occurred.
-    if (IsEmptyMoveRule(move)) return true;
+    if (IsEmptyMoveRule(turn.move)) return true;
     
     //Insufficient Material
     if (IsInsufficientMaterial()) return true;
@@ -2381,8 +2406,8 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
     const bool PvNode = beta - alpha > 1;
 
     //Transposition Table Lookup
-    TTEntry * tt_entry = GetTTEntry(hash_key);
-    int ttValue = GetTableValue(tt_entry, hash_key);
+    const TTEntry * tt_entry = GetTTEntry(hash_key);
+    const int ttValue = GetTableValue(tt_entry, hash_key);
     if (!PvNode && tt_entry->depth >= ply_depth && ttValue != NO_HASH) {
         if (tt_entry->flag == HASH_EXACT) return ttValue;
         if (tt_entry->flag == HASH_ALPHA && ttValue <= alpha) return alpha;
@@ -2471,8 +2496,8 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     const bool PvNode = beta - alpha > 1;
 
     //Transposition Table Lookup
-    TTEntry * tt_entry = GetTTEntry(hash_key);
-    int ttValue = GetTableValue(tt_entry, hash_key);
+    const TTEntry * tt_entry = GetTTEntry(hash_key);
+    const int ttValue = GetTableValue(tt_entry, hash_key);
     if (!PvNode && tt_entry->depth >= ply_depth && ttValue != NO_HASH) {
         if (tt_entry->flag == HASH_EXACT) return ttValue;
         if (tt_entry->flag == HASH_ALPHA && ttValue <= alpha) return alpha;
@@ -2545,7 +2570,6 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
             else {
                 if (legal_moves >= futility_move_count && type != T) continue; //Move Count Pruning for quiet moves. Not dependent on PvNode
                 if (!PvNode && ply_depth < 13 && static_eval + 103 + 138 * ply_depth <= alpha) continue;
-                //if (!PvNode && ply_depth < 3 && See(id, side, type, capture, source, target) < 0) continue; //prune moves with negative SEE
             }
         }
         
@@ -2675,7 +2699,7 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
 
     if (legal_moves == 0) // we don't have any legal moves to make in the current postion
         globals[id].search_result.flag = (in_check) ? CHECKMATE : STALEMATE;
-    else if (IsDrawnGame(globals[id].search_result.final_move, globals[id].search_result.final_hash_key))
+    else if (IsDrawnGame({globals[id].search_result.final_hash_key, globals[id].search_result.final_move}))
         globals[id].search_result.flag = DRAW_GAME;
     else
         globals[id].search_result.flag = FOUND_MOVE;
@@ -2703,7 +2727,7 @@ static inline SearchResult FindBestMove(char side) {
     threads.reserve(THREAD_COUNT);
     int ply_depth = DEPTH;
 
-    bool IsEndGame = Count(Occupancies[both]) <= 30;
+    bool IsEndGame = Count(Occupancies[both]) <= 40;
 
     //Reset global values
     for (int id = 0; id < THREAD_COUNT; id++) {
@@ -2759,18 +2783,17 @@ static inline SearchResult FindBestMove(char side) {
     return best_result;
 }
 
-void SwitchTurnValues(U64 move_key) {
+void UpdateTurnValues(Turn turn) {
     //Switch sides and readjust key variables
-    AddToMoveList(move_key);
+    AddToTurnList(turn);
     SIDE = !SIDE;
     ClearTimeNodeValues();
-    TURN++;
 }
 
 void ClearMiscTables() {
     for (int i = 0; i < DEPTH; i++) ordered_moves[i].Clear();
     for (int i = 0; i < QDEPTH; i++) quiescence_moves[i].Clear();
-    for (int i = 0; i < MAX_TURNS; i++) moves_list[i] = 0;
+    for (int i = 0; i < MAX_TURNS; i++) turn_list[i] = {0, 0};
 }
 
 // init all variables
@@ -2849,6 +2872,37 @@ void tokenize(string const &str, const char delim, vector<string> &out)
     while (std::getline(ss, s, delim)) {
         out.push_back(s);
     }
+}
+
+//Used by UI and SelfPlay
+//Directly alters the global bitboards
+inline void MakeRealMove(Turn turn) {
+    char side = get_move_side(turn.move);
+    char attacker = get_move_piece(turn.move);
+    char capture = get_move_capture(turn.move);
+    int source = get_move_source(turn.move);
+    int target = get_move_target(turn.move);
+
+    if (attacker != T || !IsPromotion(side, target)) {
+        PopBit(Bitboards[(side*6) + attacker], source);
+        SetBit(Bitboards[(side*6) + attacker], target);
+    }
+    else {
+        PopBit(Bitboards[(side*6) + T], source); //Remove tetra from side at source
+        SetBit(Bitboards[(side*6) + I], target); //Add icosa to side at target
+    }
+    
+    PopBit(Occupancies[side], source);
+    SetBit(Occupancies[side], target);
+    PopBit(Occupancies[both], source);
+    SetBit(Occupancies[both], target);
+
+    if (IsCapture(capture)) {
+        PopBit(Bitboards[((!side)*6) + capture], target);
+        PopBit(Occupancies[!side], target);
+    }
+
+    UpdateTurnValues(turn);
 }
 
 void SelfPlay() {
@@ -2948,15 +3002,13 @@ void SelfPlay() {
         else {
             //Print out testing/logging info
             if (!log_only && !log_timed) printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
-            printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|SearchDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|SeeValue=%d|Score=%d|Thread=%d|PiecesLeft=%d|NodesSearched=%ld|Time=%s]%s\n",
+            printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|SearchDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|PiecesLeft=%d|NodesSearched=%ld|Time=%s]%s\n",
                     TURN, DEPTH, QDEPTH, FINAL_DEPTH, search_result.search_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, 
-                    (IsCapture(capture)) ? ascii_pieces[capture] : 'X', See(0, SIDE, type, capture, source, target), search_result.final_score, search_result.thread_id, 
+                    (IsCapture(capture)) ? ascii_pieces[capture] : 'X', search_result.final_score, search_result.thread_id, 
                     Count(Occupancies[both]), NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
 
             //Make the move just searched, if not a checkmate/stalemate
-            MakeRealMove(SIDE, type, source, target); 
-
-            SwitchTurnValues(search_result.final_hash_key); //Switch sides
+            MakeRealMove({search_result.final_hash_key, search_result.final_move}); 
         }
     }
 }
@@ -2969,7 +3021,9 @@ void SelfPlay() {
  ==================================
 \**********************************/
 
-Int343 BBValue; //Helper variable for transfering bits from here to Unity engine.
+//Helper variable for transfering bits from here to Unity engine.
+//We can't port Int343 values directly, so we need a helper to grab the indivdual 64 bit long values
+Int343 BB_VALUE; 
 
 /*
 ** Helper method for the C# Dll Methods
@@ -3041,10 +3095,15 @@ extern "C"
     }
 
     DllExport void MakeBBMove(int side, int type, int source, int target) {
-        U64 start_key = BuildTranspositionKey();
-        char capture = MakeRealMove(side, type, source, target);
-        long move = encode_move(source, target, type, capture, 0, side);
-        SwitchTurnValues(GetTTKey(start_key, move));
+        SetGlobalBitBoards();
+
+        char promotion = type == T && IsPromotion(side, target);
+        char capture = GetCapture(0, side, target);
+        long move = encode_move(source, target, type, capture, promotion, side);
+        U64 move_key = GetTTKey(BuildTranspositionKey(), move);
+        Turn turn = {move_key, move};
+
+        MakeRealMove(turn);
     }
 
     DllExport long Search(int side) {
@@ -3107,18 +3166,6 @@ extern "C"
         return GetCapture(0, side, target);
     }
 
-    DllExport bool CheckDrawnGame() {
-        //Insufficient Material
-        if (IsInsufficientMaterial()) 
-            return true;
-
-        return false;
-    }
-
-    DllExport void AbortGame() {
-        ABORT_GAME = true;
-    }
-
     DllExport bool IsSphereInCheck(int side) {
         SetGlobalBitBoards();
         return is_sphere_in_check(side);
@@ -3141,50 +3188,85 @@ extern "C"
         return total;
     }
 
-    //Sets the possible moves to BBValue
+    DllExport bool CheckDrawnGame() {
+        TURN--; //Hack to get the last turn and allow the IsDrawnGame methods to work.
+        Turn last_turn = turn_list[TURN];
+        bool is_draw = IsDrawnGame(last_turn);
+        TURN++;
+
+        return is_draw;
+    }
+
+    DllExport int EvaluateBoard(int side) {
+        int result = 0;
+        if (CountLegalMoves(side) == 0) {
+            if (IsSphereInCheck(side))
+                result = CHECKMATE;
+            else
+                result = STALEMATE;
+        }
+        else if (CheckDrawnGame()) {
+            result = DRAW_GAME;
+        }
+
+        return result;
+    }
+
+    DllExport void AbortGame() {
+        ABORT_GAME = true;
+    }
+
+    //Sets the possible moves to BB_VALUE
     DllExport void SetPossibleMoves(int type, int side, int block) {
         if (type == T)
-            BBValue = GetPossibleTetraMoves(side, block);
+            BB_VALUE = GetPossibleTetraMoves(side, block);
         else if (type == D)
-            BBValue = GetPossibleDodecaMoves(block);
+            BB_VALUE = GetPossibleDodecaMoves(block);
         else if (type == O)
-            BBValue = GetPossibleOctaMoves(block);
+            BB_VALUE = GetPossibleOctaMoves(block);
         else if (type == C)
-            BBValue = GetPossibleCubeMoves(block);
+            BB_VALUE = GetPossibleCubeMoves(block);
         else if (type == I)
-            BBValue = GetPossibleOctaMoves(block) | GetPossibleCubeMoves(block);
+            BB_VALUE = GetPossibleOctaMoves(block) | GetPossibleCubeMoves(block);
         else if (type == S)
-            BBValue = GetPossibleSphereMoves(block);
+            BB_VALUE = GetPossibleSphereMoves(block);
         else 
-            BBValue = GetPossibleTetraMoves(side, block);
+            BB_VALUE = GetPossibleTetraMoves(side, block);
     }
 
-    // Sets the legal moves to BBValue
+    // Sets the legal moves to BB_VALUE
     DllExport void SetLegalMoves(int type, int side, int block) {
         SetGlobalBitBoards();
-        BBValue = get_legal_moves(type, side, block);
+        BB_VALUE = get_legal_moves(type, side, block);
     }
 
-    //Used for grabbing the info in BBValue
+    //Used for grabbing the info in BB_VALUE
+    //We can't return Int343, so we need a helper to access the individual 64bit long values.
     DllExport U64 GetBBValue(int index) {
-        return BBValue.Bits[index];
+        return BB_VALUE.Bits[index];
     }
+
+    DllExport long GetMoveAtTurn(int turn) {
+        if (turn < 0 || turn >= TURN || turn >= MAX_TURNS) return 0;
+        return turn_list[turn].move;
+    }
+
+    DllExport U64 GetKeyAtTurn(int turn) {
+        if (turn < 0 || turn >= TURN || turn >= MAX_TURNS) return 0;
+        return turn_list[turn].key;
+    }
+
+    DllExport void AddToTurnList(U64 key, long move) {
+        AddToTurnList({key, move});
+    }
+
+
 }
 
 /*
-* TODO:
-* X Create FEN strings so that board has a starting setup
-* X Make the board print out with ascii pieces
-* X Make board interactable, so you can move pieces
-* X Set up all bitboards: Attack moves, Directions, Rays, Masks, Occupancies and Pieces
-* X Set up make move and reverse move
-* X Set up array to contain scored moves during the algorithm
-* X Set up UCI with the AI.
-* X Set up Player vs AI UCI
-* X Implement Alpha Beta as you have it in C#
-* X Run and test everything as is
-* Y Implement Transposition Table - Test Keys more thoroughly
-* Y Implement Late Move Reduction - Fully implement once evaluations complete
+* CHECK-LIST:
+* Y Implement Transposition Table
+* Y Implement Late Move Reduction
 * Y Implement Null Move
 * Y PVS Searching
 * Y PV Node Check
@@ -3193,22 +3275,20 @@ extern "C"
 * Y Killer Moves
 * Y Razoring
 * Y Futility Pruning
-* N Evaluation Pruning
+* Y Evaluation Pruning
 * Y Lazy SMP / Multi-threading
 * Y Mate Distance Pruning
 * Y Mate Count Pruning
 * Y Implement Quisesence + Delta Search
 * N Probability Cut
-* N Isolated Pawn Evaluation
-* X Add Code to handle being in_check
-* ? Fully Implement Evaluation
+* Y Isolated Pawn Evaluation
+* Y Add Code to handle being in_check
+* Y Static Exchange Evaluation
+* Y SEE Pruning
 * N Add Mobility Scoring to Evaluation
 * Y Add Check Scoring to Evaluation
-* X Add Pawn Upgrade
-* X Fix / Fully Test Transposition Table
 * Y Implement Search Timeout
-* X Implement multi-thread searching during player's turn
-* X Transfer code to Unity
+* Y  Implement multi-thread searching during player's turn
 * Y Iterative Deepening
 */
 int main() {
