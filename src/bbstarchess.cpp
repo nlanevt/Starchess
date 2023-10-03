@@ -534,7 +534,7 @@ void print_full_board() {
     bool piece_found = false;
     printf("\n");
     
-    printf("Turn %d = %s\n", TURN+1, SIDE ? "Black" : "White");
+    printf("Turn %d = %s\n", TURN, SIDE ? "Black" : "White");
     for (int depth = 6; depth >= 0; depth--) {
         printf("%c", ZSymbols[depth]);
 
