@@ -1035,7 +1035,7 @@ struct SearchResult {
     bool IsEndGame = false;
 };
 
-#define MAX_THREADS 8 //8
+#define MAX_THREADS 12 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -2091,7 +2091,7 @@ static inline void AddToTurnList(Turn turn) {
 }
 
 static inline bool IsRepeated(U64 new_position) {
-    if (TURN >= 7 && (new_position == turn_list[TURN-3].key || new_position == turn_list[TURN-5].key || new_position == turn_list[TURN-7].key)) {
+    if (TURN >= 8 && (new_position == turn_list[TURN-4].key || new_position == turn_list[TURN-6].key || new_position == turn_list[TURN-8].key)) {
         return true;
     }
 
