@@ -2411,7 +2411,6 @@ inline int FutilityMoveCount(bool improving, int depth) {
 
 static inline int QSearch(char id, int ply_depth, int list_index, char side, U64 hash_key, int alpha, int beta) {
     if (ABORT_GAME) return 0;
-    globals[id].NODES_SEARCHED++;
 
     const bool PvNode = beta - alpha > 1;
 
@@ -2423,6 +2422,8 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
         if (tt_entry->flag == HASH_ALPHA && ttValue <= alpha) return alpha;
         if (tt_entry->flag == HASH_BETA && ttValue >= beta) return beta;
     }
+
+    globals[id].NODES_SEARCHED++;
 
     int static_eval = Evaluation(id, side, true);
 
@@ -2496,11 +2497,11 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
 
 static inline int SubSearch(const char id, const int ply_depth, const int list_index, const char side, const U64 hash_key, const bool CanDoNullMove, int alpha, int beta) {
      if (ABORT_GAME) return 0;
+     if (ply_depth <= 0 || StopGame(id) || list_index >= DEPTH) return QSearch(id, QDEPTH, 0, side, hash_key, alpha, beta);
 
     //Set PV Length. This must occur here at the top.
     int ply = (list_index < DEPTH) ? list_index : DEPTH-1; 
     globals[id].pv_length[ply] = ply;
-
     const bool PvNode = beta - alpha > 1;
 
     //Transposition Table Lookup
@@ -2511,8 +2512,6 @@ static inline int SubSearch(const char id, const int ply_depth, const int list_i
         if (tt_entry->flag == HASH_ALPHA && ttValue <= alpha) return alpha;
         if (tt_entry->flag == HASH_BETA && ttValue >= beta) return beta;
     }
-
-    if (ply_depth <= 0 || StopGame(id) || list_index >= DEPTH) return QSearch(id, QDEPTH, 0, side, hash_key, alpha, beta);
 
     globals[id].NODES_SEARCHED++;
 
@@ -2867,7 +2866,7 @@ void PrintEndGameMetrics() {
     printf("BlackPieces=%d\n", Count(Occupancies[black]));
     printf("TotalPieces=%d\n", Count(Occupancies[both]));
     //printf("TimeoutCount=%d\n", TIMEOUT_COUNT); 
-    printf("AvergeSearchTime=%s\n", GetTimeStampString(AVERAGE_SEARCH_TIME).c_str());
+    printf("AverageSearchTime=%s\n", GetTimeStampString(AVERAGE_SEARCH_TIME).c_str());
     printf("MaxSearchTime=%s\n", GetTimeStampString(MAX_SEARCH_TIME).c_str());
 }
 
