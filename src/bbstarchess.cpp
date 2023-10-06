@@ -1274,7 +1274,7 @@ U64 BuildTranspositionKey() {
     return key;
 }
 
-static inline U64 GetTTKey(U64 initial_key, long move) {
+static inline U64 MakeTTKey(U64 initial_key, long move) {
     if (move == NO_MOVE) return initial_key;
 
 
@@ -1330,32 +1330,6 @@ static inline void WriteToHashTable(U64 hash_key, int ply_depth, int score, int 
             tt_entry->score = HASH_ALPHA;
         }
     }
-}
-
-static inline int ReadHashTable(U64 hash_key, int ply_depth, int alpha, int beta) {
-    TTEntry * tt_entry = GetTTEntry(hash_key);
-    if (tt_entry->key == hash_key &&
-        IsSameTurn(tt_entry) &&
-        tt_entry->depth >= ply_depth) { //If the move chain already exists, then get that score
-
-        if (tt_entry->flag == HASH_EXACT) return tt_entry->score;
-        if (tt_entry->flag == HASH_ALPHA && tt_entry->score <= alpha) return alpha;
-        if (tt_entry->flag == HASH_BETA && tt_entry->score >= beta) return beta;
-
-    }
-
-    return NO_HASH;
-}
-
-static inline int ReadTableValue(TTEntry * tt_entry, U64 hash_key, int alpha, int beta) {
-    if (tt_entry->key == hash_key &&
-        IsSameTurn(tt_entry)) { //If the move chain already exists, then get that score
-        if (tt_entry->flag == HASH_EXACT) return tt_entry->score;
-        if (tt_entry->flag == HASH_ALPHA && tt_entry->score <= alpha) return alpha;
-        if (tt_entry->flag == HASH_BETA && tt_entry->score >= beta) return beta;
-    }
-
-    return NO_HASH;
 }
 
 #define GetTableValue(tt_entry, hash_key) ((tt_entry->key == hash_key && IsSameTurn(tt_entry)) ? tt_entry->score : NO_HASH)
@@ -2469,7 +2443,7 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
             continue;
         }
 
-        new_key = GetTTKey(hash_key, move);
+        new_key = MakeTTKey(hash_key, move);
 
         score = -QSearch(id, ply_depth-1, list_index+1, !side, new_key, -beta, -alpha);
 
@@ -2549,7 +2523,7 @@ static inline int SubSearch(const char id, const int ply_depth, const int list_i
         //Null Move Pruning
         if (CanDoNullMove && ply_depth >= 3) {
             long null_move = EncodeNullMove(side);
-            new_key = GetTTKey(hash_key, null_move);
+            new_key = MakeTTKey(hash_key, null_move);
             globals[id].mstack[list_index].move = null_move; //Store null move in stack
             globals[id].mstack[list_index].static_eval = static_eval; //Store static eval in stack
             score = -SubSearch(id, ply_depth - 3, list_index+1, !side, new_key, false, -beta, -beta + 1);
@@ -2594,7 +2568,7 @@ static inline int SubSearch(const char id, const int ply_depth, const int list_i
             continue;
         }
 
-        new_key = GetTTKey(hash_key, move);
+        new_key = MakeTTKey(hash_key, move);
         globals[id].mstack[list_index].move = move; //Store move in stack
         globals[id].mstack[list_index].static_eval = static_eval; //Store eval in stack
             
@@ -2686,7 +2660,7 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
             continue;
         }
 
-        hash_key = GetTTKey(start_key, move);
+        hash_key = MakeTTKey(start_key, move);
         globals[id].mstack[list_index].move = move;
         globals[id].mstack[list_index].static_eval = static_eval;
 
@@ -3121,7 +3095,7 @@ extern "C"
         char promotion = type == T && IsPromotion(side, target);
         char capture = GetCapture(0, side, target);
         long move = encode_move(source, target, type, capture, promotion, side);
-        U64 move_key = GetTTKey(BuildTranspositionKey(), move);
+        U64 move_key = MakeTTKey(BuildTranspositionKey(), move);
         Turn turn = {move_key, move};
 
         MakeRealMove(turn);
@@ -3274,13 +3248,10 @@ extern "C"
         return turn_list[turn].move;
     }
 
-    DllExport U64 GetKeyAtTurn(int turn) {
-        if (turn < 0 || turn >= TURN || turn >= MAX_TURNS) return 0;
-        return turn_list[turn].key;
-    }
-
-    DllExport void AddToTurnList(U64 key, long move) {
-        AddToTurnList({key, move});
+    DllExport void AddToTurnList(long move) {
+        U64 key = MakeTTKey(BuildTranspositionKey(), move);
+        Turn turn = {key, move};
+        AddToTurnList(turn);
     }
 
     DllExport int GetTurn() {
