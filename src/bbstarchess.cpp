@@ -89,7 +89,7 @@ enum {NO_MOVE, FOUND_MOVE};
 #define DRAW_GAME 102
 #define NO_CAPTURE 6
 #define NO_DIR 19
-#define NULL_MOVE 0
+#define NO_MOVE 0
 
 // convert ASCII character pieces to encoded constants
 int char_pieces[] = {
@@ -982,8 +982,10 @@ struct Move {
     }
 };
 
-struct OrderedMoves {
+struct MoveStack {
     int count = 0;
+    long move = 0;
+    int static_eval = 0;
     Move moves[MAX_MOVE_COUNT_SIZE];
 
     void Add(Move move) {
@@ -999,6 +1001,8 @@ struct OrderedMoves {
 
     void Clear() {
         count = 0;
+        move = 0;
+        static_eval = 0;
     }
 };
 
@@ -1026,8 +1030,8 @@ struct SearchResult {
     long NODES_SEARCHED = 0;
     long killer_moves[2][MAX_DEPTH];
     int history_moves[12][343]; //history moves [piece][square]
-    OrderedMoves ordered_moves[MAX_DEPTH];
-    OrderedMoves quiescence_moves[MAX_QDEPTH];
+    MoveStack mstack[MAX_DEPTH];
+    MoveStack qstack[MAX_QDEPTH];
     SearchResult search_result;
     int pv_length[MAX_DEPTH]; // PV length [ply]
     long pv_table[MAX_DEPTH][MAX_DEPTH]; // PV table [ply][ply]
@@ -1035,7 +1039,7 @@ struct SearchResult {
     bool IsEndGame = false;
 };
 
-#define MAX_THREADS 12 //8
+#define MAX_THREADS 8 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -1077,6 +1081,7 @@ Global globals[MAX_THREADS]; //GLOBAL
 #define GetValidTetraMoves(id, side, block) ((tetra_attacks[side][block] & globals[id].Occupancies[!side]) | (tetra_moves[side][block] ^ (tetra_moves[side][block] & globals[id].Occupancies[both])))
 #define GetValidDodecaMoves(id, side, block) (dodeca_attacks[block] ^ (dodeca_attacks[block] & globals[id].Occupancies[side]))
 #define GetValidSphereMoves(id, side, block) (sphere_attacks[block] ^ (sphere_attacks[block] & globals[id].Occupancies[side]))
+#define EncodeNullMove(side) (encode_move(0, 0, 0, 0, 0, side))
 #define IsNullMove(move) ((move << 5) == 0)
 /*
 * Process:
@@ -1270,15 +1275,18 @@ U64 BuildTranspositionKey() {
 }
 
 static inline U64 GetTTKey(U64 initial_key, long move) {
-    if (move == NULL_MOVE) return initial_key;
+    if (move == NO_MOVE) return initial_key;
+
 
     char side = get_move_side(move);
+    U64 trans_key = initial_key ^ side;
+    if (IsNullMove(move)) return trans_key;
+
     char exact_type = (side * 6) + get_move_piece(move);
     char capture = get_move_capture(move);
     int source = get_move_source(move);
     int target = get_move_target(move);
 
-    U64 trans_key = initial_key ^ side;
     trans_key = trans_key ^ (piece_keys[exact_type][source]) ^ (piece_keys[exact_type][target]);
     return (IsCapture(capture)) ? trans_key ^ (piece_keys[(side * 6) + capture][target]) : trans_key;
 }
@@ -1297,15 +1305,16 @@ void ClearTranspositionTable() {
     }
 }
 
-//We add by one so its checked as not emptry, i.e. non-zero
-#define IsSameTurn(tt_entry) (tt_entry->turn == TURN+1)
+//We add by one so the TT is checked as not emptry, i.e. non-zero
+#define TT_TURN() (TURN+1)
+#define IsSameTurn(tt_entry) (tt_entry->turn == TT_TURN())
 
 static inline void WriteToHashTable(U64 hash_key, int ply_depth, int score, int alpha, int beta) {
     //Replace tt entry if its an untouched entry or if the current depth is greater than whats in the entry
     TTEntry * tt_entry = GetTTEntry(hash_key);
     if (!IsSameTurn(tt_entry)) {
         tt_entry->key = hash_key;
-        tt_entry->turn = TURN+1; //Add by one so its stored as non-zero, hence not empty
+        tt_entry->turn = TT_TURN(); //Add by one so its stored as non-zero, hence not empty
         tt_entry->depth = ply_depth;
 
         if (score >= beta) {
@@ -1867,7 +1876,7 @@ inline Int343 GetAttacksTo(char id, char attacking_side, int block) {
     return attacks;
 }
 
-inline bool SafeCheckExists(char id, char attacking_side, int sphere_block) {
+inline bool HasSafeCheck(char id, char attacking_side, int sphere_block) {
     int block; Int343 attackers;
     
     //Attacked by Octas
@@ -1901,7 +1910,10 @@ inline bool SafeCheckExists(char id, char attacking_side, int sphere_block) {
     return false;
 }
 
-inline int CountSafeSphereRegionAttacks(char id, char attacking_side, int sphere_block) {
+//Calculates percentage of safe attacks in the region of the sphere at sphere_block.
+//This region includes the sphere itself plus locations it can move to.
+//The percentage returns as a positive integer greater than 1.
+inline int GetSafeSphereRegionAttacksPercent(char id, char attacking_side, int sphere_block) {
     Int343 sphere_region = sphere_attacks[sphere_block];
     SetBit(sphere_region, sphere_block);
 
@@ -1939,7 +1951,7 @@ inline int Evaluation(char id, char side, bool full_eval) {
         score += material_score[S]; score += position_scores[S][block]; 
         if (full_eval && side == white) {
             //score -= (globals[id].IsEndGame) ? SafeCheckExists(id, black, block) * 10 : SafeCheckExists(id, black, block) * 7;
-            score -= (globals[id].IsEndGame) ? CountSafeSphereRegionAttacks(id, black, block) : SafeCheckExists(id, black, block) * 7;
+            score -= (globals[id].IsEndGame) ? GetSafeSphereRegionAttacksPercent(id, black, block) : HasSafeCheck(id, black, block) * 7;
         }
     }
 
@@ -1958,7 +1970,7 @@ inline int Evaluation(char id, char side, bool full_eval) {
         score += material_score[s]; score -= position_scores[S][mirror_score[block]]; 
         if (full_eval && side == black) {
             //score += (globals[id].IsEndGame) ? SafeCheckExists(id, white, block) * 10 : SafeCheckExists(id, white, block) * 7;
-            score += (globals[id].IsEndGame) ? CountSafeSphereRegionAttacks(id, white, block) : SafeCheckExists(id, white, block) * 7;
+            score += (globals[id].IsEndGame) ? GetSafeSphereRegionAttacksPercent(id, white, block) : HasSafeCheck(id, white, block) * 7;
         }
     }
 
@@ -2073,8 +2085,8 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
 \**********************************/
 #define MAX_TURNS 1000 //Cap on number of turns
 #define EMPTY_MOVE_THRESHOLD 50
-OrderedMoves ordered_moves[MAX_DEPTH]; //GLOBAL
-OrderedMoves quiescence_moves[MAX_QDEPTH]; //GLOBAL
+MoveStack mstack[MAX_DEPTH]; //GLOBAL
+MoveStack qstack[MAX_QDEPTH]; //GLOBAL
 
 struct Turn {
     U64 key;
@@ -2194,7 +2206,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
             capture = GetCapture(id, side, target);
             move = encode_move(source, target, T, capture, IsPromotion(side, target), side);
             score = ScoreMove(id, list_index, move, side, T, capture, IsPromotion(side, target), target);
-            globals[id].ordered_moves[list_index].Add({move, score});
+            globals[id].mstack[list_index].Add({move, score});
         }
     }
 
@@ -2206,7 +2218,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
             capture = GetCapture(id, side, target);
             move = encode_move(source, target, D, capture, 0, side);
             score = ScoreMove(id, list_index, move, side, D, capture, 0, target);
-            globals[id].ordered_moves[list_index].Add({move, score});
+            globals[id].mstack[list_index].Add({move, score});
         }
     }
 
@@ -2219,7 +2231,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
             capture = GetCapture(id, side, target);
             move = encode_move(source, target, O, capture, 0, side);
             score = ScoreMove(id, list_index, move, side, O, capture, 0, target);
-            globals[id].ordered_moves[list_index].Add({move, score});
+            globals[id].mstack[list_index].Add({move, score});
         }
     }
 
@@ -2232,7 +2244,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
             capture = GetCapture(id, side, target);
             move = encode_move(source, target, C, capture, 0, side);
             score = ScoreMove(id, list_index, move, side, C, capture, 0, target);
-            globals[id].ordered_moves[list_index].Add({move, score});
+            globals[id].mstack[list_index].Add({move, score});
         }
     }
 
@@ -2245,7 +2257,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
             capture = GetCapture(id, side, target);
             move = encode_move(source, target, I, capture, 0, side);
             score = ScoreMove(id, list_index, move, side, I, capture, 0, target);
-            globals[id].ordered_moves[list_index].Add({move, score});
+            globals[id].mstack[list_index].Add({move, score});
         }
     }
 
@@ -2256,7 +2268,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
         capture = GetCapture(id, side, target);
         move = encode_move(source, target, S, capture, 0, side);
         score = ScoreMove(id, list_index, move, side, S, capture, 0, target);
-        globals[id].ordered_moves[list_index].Add({move, score});
+        globals[id].mstack[list_index].Add({move, score});
     }
 }
 
@@ -2272,7 +2284,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             score = ScoreCapture(T, capture);
-            globals[id].quiescence_moves[list_index].Add({encode_move(source, target, T, capture, IsPromotion(side, target), side), score});
+            globals[id].qstack[list_index].Add({encode_move(source, target, T, capture, IsPromotion(side, target), side), score});
         }
     }
 
@@ -2283,7 +2295,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             score = ScoreCapture(D, capture);
-            globals[id].quiescence_moves[list_index].Add({encode_move(source, target, D, capture, 0, side), score});
+            globals[id].qstack[list_index].Add({encode_move(source, target, D, capture, 0, side), score});
         }
     }
 
@@ -2294,7 +2306,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             score = ScoreCapture(O, capture);
-            globals[id].quiescence_moves[list_index].Add({encode_move(source, target, O, capture, 0, side), score});
+            globals[id].qstack[list_index].Add({encode_move(source, target, O, capture, 0, side), score});
         }
     }
 
@@ -2305,7 +2317,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             score = ScoreCapture(C, capture);
-            globals[id].quiescence_moves[list_index].Add({encode_move(source, target, C, capture, 0, side), score});
+            globals[id].qstack[list_index].Add({encode_move(source, target, C, capture, 0, side), score});
         }
     }
 
@@ -2316,7 +2328,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
         while ((target = ForwardScanPop(&moves)) >= 0) {
             capture = GetCapture(id, side, target);
             score = ScoreCapture(I, capture);
-            globals[id].quiescence_moves[list_index].Add({encode_move(source, target, I, capture, 0, side), score});
+            globals[id].qstack[list_index].Add({encode_move(source, target, I, capture, 0, side), score});
         }
     }
 
@@ -2326,7 +2338,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
     while ((target = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, target);
         score = ScoreCapture(S, capture);
-        globals[id].quiescence_moves[list_index].Add({encode_move(source, target, S, capture, 0, side), score});
+        globals[id].qstack[list_index].Add({encode_move(source, target, S, capture, 0, side), score});
     }
 }
 
@@ -2343,13 +2355,14 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
 
 long NODES_SEARCHED = 0; //GLOBAL
 int FINAL_DEPTH = 0;
-int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends. //GLOBAL
-long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends. //GLOBAL
-long long MAX_SEARCH_TIME = 0; //GLOBAL
 bool TIMEOUT_STOPPED = false; //GLOBAL
 bool ABORT_GAME = false;
 chrono::time_point<chrono::steady_clock> START_TIME;
-//mutex mtx; //Used for locking thread when finishing search
+
+//Testing Variables - used for monitoring performance
+//int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends. //GLOBAL
+long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends. //GLOBAL
+long long MAX_SEARCH_TIME = 0; //GLOBAL
 
 void StartTimer() {
     START_TIME = chrono::steady_clock::now();
@@ -2369,7 +2382,7 @@ inline bool StopGame(char id) {
 
     long long time_passed = GetTimePassed();
     if (time_passed > TIME_LIMIT) {
-        TIMEOUT_COUNT++;
+        //TIMEOUT_COUNT++;
         TIMEOUT_STOPPED = true;
         return true;
     }
@@ -2434,8 +2447,8 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
     int sphere_source = GetSphereSource(id, side);
     int legal_moves = 0;
     int score = 0;
-    for (int i = 0; i < globals[id].quiescence_moves[list_index].count; i++) {
-        move = globals[id].quiescence_moves[list_index].moves[i].encoding;
+    for (int i = 0; i < globals[id].qstack[list_index].count; i++) {
+        move = globals[id].qstack[list_index].moves[i].encoding;
         type = get_move_piece(move);
         capture = get_move_capture(move);
         source = get_move_source(move);
@@ -2465,7 +2478,7 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
 
         if (score >= beta) {
             WriteToHashTable(hash_key, ply_depth, score, alpha, beta);
-            globals[id].quiescence_moves[list_index].Clear();
+            globals[id].qstack[list_index].Clear();
             return beta;
         }
 
@@ -2477,17 +2490,15 @@ static inline int QSearch(char id, int ply_depth, int list_index, char side, U64
 
     WriteToHashTable(hash_key, ply_depth, alpha, initial_alpha, beta);
 
-    globals[id].quiescence_moves[list_index].Clear();
+    globals[id].qstack[list_index].Clear();
     return alpha;
 }
 
-//pp_eval = static eval from this sides last turn, so the turn before the last turn
-//p_eval = static eval from the last turn, so the opponents turn that led to this one.
-static inline int SubSearch(char id, int ply_depth, int list_index, char side, U64 hash_key, bool null_move, int pp_eval, int p_eval, int alpha, int beta) {
+static inline int SubSearch(const char id, const int ply_depth, const int list_index, const char side, const U64 hash_key, const bool CanDoNullMove, int alpha, int beta) {
      if (ABORT_GAME) return 0;
 
     //Set PV Length. This must occur here at the top.
-    int ply = (list_index < DEPTH) ? list_index : DEPTH-1; //int ply = (ply_depth >= 0) ? total_depth - ply_depth : total_depth-1;
+    int ply = (list_index < DEPTH) ? list_index : DEPTH-1; 
     globals[id].pv_length[ply] = ply;
 
     const bool PvNode = beta - alpha > 1;
@@ -2516,9 +2527,11 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
     int static_eval = Evaluation(id, side, false);
     if (ttValue != NO_HASH && ttValue > static_eval) static_eval = ttValue;
 
-    bool improving = (static_eval - pp_eval) > 0;
+    //improving = current static eval - static eval two turns ago
+    bool improving = (static_eval - (list_index > 1 ? globals[id].mstack[list_index-2].static_eval : 0)) > 0;
     
-    int score = 0;
+    int score = 0; U64 new_key;
+
     if (!in_check && !PvNode) {
         //Razoring
         if (static_eval < alpha - 426 - 252 * ply_depth * ply_depth) { //Use 600 instead
@@ -2529,29 +2542,34 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
 
         //Futility Pruning
         if (ply_depth <= 4 &&
-            static_eval - (165 * (ply_depth - improving)) - (p_eval / 280) >= beta &&
+            static_eval - (165 * (ply_depth - improving)) - ((list_index > 0 ? globals[id].mstack[list_index-1].static_eval : 0) / 280) >= beta &&
             static_eval < 48000) {
             return static_eval;
         }
 
         //Null Move Pruning
-        if (null_move && ply_depth >= 3) {
-            score = -SubSearch(id, ply_depth - 3, list_index+1, !side, hash_key, false, p_eval, static_eval, -beta, -beta + 1);
-            if (score >= beta)
+        if (CanDoNullMove && ply_depth >= 3) {
+            long null_move = EncodeNullMove(side);
+            new_key = GetTTKey(hash_key, null_move);
+            globals[id].mstack[list_index].move = null_move; //Store null move in stack
+            globals[id].mstack[list_index].static_eval = static_eval; //Store static eval in stack
+            score = -SubSearch(id, ply_depth - 3, list_index+1, !side, new_key, false, -beta, -beta + 1);
+            if (score >= beta) {
+                globals[id].mstack[list_index].Clear();
                 return beta;
+            }
         }
     }
 
     GenerateMoves(id, list_index, side);
 
     int initial_alpha = alpha;
-    char type, capture, promotion; int source, target; long move; U64 new_key;
-    int legal_moves = 0;
+    char type, capture, promotion; int source, target, legal_moves = 0; long move; 
     int futility_move_count = FutilityMoveCount(improving, ply_depth);
     int extensions = (in_check) ? 1 : 0;
 
-    for (int i = 0; i < globals[id].ordered_moves[list_index].count; i++) {
-        move = globals[id].ordered_moves[list_index].moves[i].encoding;
+    for (int i = 0; i < globals[id].mstack[list_index].count; i++) {
+        move = globals[id].mstack[list_index].moves[i].encoding;
         capture = get_move_capture(move);
         type = get_move_piece(move);
         source = get_move_source(move);
@@ -2562,7 +2580,7 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
         if (!in_check && legal_moves > 0 && promotion == 0) {
             if (IsCapture(capture)) { //Futility pruning for captures
                 if (!PvNode && ply_depth < 6 && (static_eval + material_score[capture] + (165 * (ply_depth + improving))) <= alpha) continue;
-                if (!PvNode && globals[id].ordered_moves[list_index].moves[i].score < -205 * ply_depth) continue; //prune bad SEE captures; //find a way to store this
+                if (!PvNode && globals[id].mstack[list_index].moves[i].score < -205 * ply_depth) continue; //prune bad SEE captures; //find a way to store this
             }
             else {
                 if (legal_moves >= futility_move_count && type != T) continue; //Move Count Pruning for quiet moves. Not dependent on PvNode
@@ -2578,9 +2596,11 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
         }
 
         new_key = GetTTKey(hash_key, move);
+        globals[id].mstack[list_index].move = move; //Store move in stack
+        globals[id].mstack[list_index].static_eval = static_eval; //Store eval in stack
             
         if (legal_moves == 0) {//Do normal search on the first one
-            score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, new_key, true, p_eval, static_eval, -beta, -alpha);
+            score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, new_key, true, -beta, -alpha);
         }
         else { //Late Move Reduction (LMR)
             if (!in_check &&
@@ -2589,15 +2609,15 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
                 ply_depth >= ReductionLimit &&
                 !IsCapture(capture) &&
                 promotion == 0)
-                score = -SubSearch(id, ply_depth - 2, list_index+1, !side, new_key, true, p_eval, static_eval, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
+                score = -SubSearch(id, ply_depth - 2, list_index+1, !side, new_key, true, -alpha - 1, -alpha); //-beta would be -alpha - 1 in proper LMR
             else
                 score = alpha + 1;
 
             // if found a better move during LMR then do PVS
             if (score > alpha) { // re-search at full depth but with narrowed bandwitdh
-                score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, new_key, true, p_eval, static_eval, -alpha - 1, -alpha);
+                score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, new_key, true, -alpha - 1, -alpha);
                 if ((score > alpha) && (score < beta))
-                    score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, new_key, true, p_eval, static_eval, -beta, -alpha);
+                    score = -SubSearch(id, ply_depth - 1 + extensions, list_index+1, !side, new_key, true, -beta, -alpha);
             }
         }
 
@@ -2618,13 +2638,13 @@ static inline int SubSearch(char id, int ply_depth, int list_index, char side, U
                     globals[id].history_moves[(side * 6) + type][target] += ply_depth * ply_depth;
                 }
 
-                globals[id].ordered_moves[list_index].Clear();
+                globals[id].mstack[list_index].Clear();
                 return beta;
             }
         }
     }
 
-    globals[id].ordered_moves[list_index].Clear();
+    globals[id].mstack[list_index].Clear();
 
     // we don't have any legal moves to make in the current postion, then return checkmate or stalemate
     if (legal_moves == 0)  {
@@ -2652,8 +2672,8 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
 
     GenerateMoves(id, list_index, side); 
 
-    for (int i = 0; i < globals[id].ordered_moves[list_index].count; i++) {
-        move = globals[id].ordered_moves[list_index].moves[i].encoding;
+    for (int i = 0; i < globals[id].mstack[list_index].count; i++) {
+        move = globals[id].mstack[list_index].moves[i].encoding;
         source = get_move_source(move);
         target = get_move_target(move);
         type = get_move_piece(move);
@@ -2668,9 +2688,11 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
         }
 
         hash_key = GetTTKey(start_key, move);
+        globals[id].mstack[list_index].move = move;
+        globals[id].mstack[list_index].static_eval = static_eval;
 
         if (!IsRepeated(hash_key))
-            score = -SubSearch(id, ply_depth-1, list_index+1, !side, hash_key, true, 0, static_eval, -beta, -alpha);
+            score = -SubSearch(id, ply_depth-1, list_index+1, !side, hash_key, true, -beta, -alpha);
         else
             score = alpha;
 
@@ -2690,7 +2712,7 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
         }
     }
 
-    globals[id].ordered_moves[list_index].Clear();
+    globals[id].mstack[list_index].Clear();
 
     globals[id].search_result.search_depth = ply_depth; //May be better to have it here, but untested.
 
@@ -2730,8 +2752,8 @@ static inline SearchResult FindBestMove(char side) {
     for (int id = 0; id < THREAD_COUNT; id++) {
         for (int i = 0; i < 12; i++) globals[id].Bitboards[i] = Bitboards[i];
         for (int i = 0; i < 3; i++) globals[id].Occupancies[i] = Occupancies[i];
-        for (int depth = 0; depth < DEPTH; depth++) globals[id].ordered_moves[depth].Clear();
-        for (int depth = 0; depth < QDEPTH; depth++) globals[id].quiescence_moves[depth].Clear();
+        for (int depth = 0; depth < DEPTH; depth++) globals[id].mstack[depth].Clear();
+        for (int depth = 0; depth < QDEPTH; depth++) globals[id].qstack[depth].Clear();
         globals[id].NODES_SEARCHED = 0;
         memset(globals[id].killer_moves, 0, sizeof(globals[id].killer_moves));
         memset(globals[id].history_moves, 0, sizeof(globals[id].history_moves));
@@ -2771,11 +2793,7 @@ static inline SearchResult FindBestMove(char side) {
 
         if (globals[id].total_depth > FINAL_DEPTH)
             FINAL_DEPTH = globals[id].total_depth;
-
-        //printf("|id=%d|depth=%d|score=%d|\n", id, globals[id].search_result.search_depth, globals[id].search_result.final_score);
     }
-
-    AVERAGE_SEARCH_TIME += GetTimePassed();
 
     return best_result;
 }
@@ -2788,8 +2806,8 @@ void UpdateTurnValues(Turn turn) {
 }
 
 void ClearMiscTables() {
-    for (int i = 0; i < DEPTH; i++) ordered_moves[i].Clear();
-    for (int i = 0; i < QDEPTH; i++) quiescence_moves[i].Clear();
+    for (int i = 0; i < DEPTH; i++) mstack[i].Clear();
+    for (int i = 0; i < QDEPTH; i++) qstack[i].Clear();
     for (int i = 0; i < MAX_TURNS; i++) turn_list[i] = {0, 0};
 }
 
@@ -2808,9 +2826,12 @@ void init_variables()
     ClearMiscTables();
     ClearTimeNodeValues();
 
+    //Testing Variables
     AVERAGE_SEARCH_TIME = 0;
     MAX_SEARCH_TIME = 0;
-    TIMEOUT_COUNT = 0;
+    //TIMEOUT_COUNT = 0;
+
+    //In Game Turn counter
     TURN = 0;
 }
 
@@ -2837,18 +2858,15 @@ void TestBitBoards() {
     }
 }
 
-void PrintEndGameMetrics(bool SelfPlay) {
-    if (TURN > 0) {
-        AVERAGE_SEARCH_TIME = (SelfPlay) ? AVERAGE_SEARCH_TIME / TURN : AVERAGE_SEARCH_TIME / (TURN / 2);
-    }
-    else {
-        AVERAGE_SEARCH_TIME = 0;
-    }
+void PrintEndGameMetrics() {
+    //AVERAGE_SEARCH_TIME = (SelfPlay) ? AVERAGE_SEARCH_TIME / (TURN+1) : 0;
+    AVERAGE_SEARCH_TIME = (TURN > 0) ? AVERAGE_SEARCH_TIME / TURN : 0;
+
     printf("TurnCount=%d\n", TURN);
     printf("WhitePieces=%d\n", Count(Occupancies[white]));
     printf("BlackPieces=%d\n", Count(Occupancies[black]));
     printf("TotalPieces=%d\n", Count(Occupancies[both]));
-    printf("TimeoutCount=%d\n", TIMEOUT_COUNT); //TODO: Ensure TIMEOUT_COUNT Gets reset to 0;
+    //printf("TimeoutCount=%d\n", TIMEOUT_COUNT); 
     printf("AvergeSearchTime=%s\n", GetTimeStampString(AVERAGE_SEARCH_TIME).c_str());
     printf("MaxSearchTime=%s\n", GetTimeStampString(MAX_SEARCH_TIME).c_str());
 }
@@ -2973,6 +2991,8 @@ void SelfPlay() {
 
         //Get length of search, for testing purposes
         search_time = GetTimePassed();
+        AVERAGE_SEARCH_TIME += search_time;
+
         if (search_time > MAX_SEARCH_TIME) MAX_SEARCH_TIME = search_time;
 
         if (search_result.flag == CHECKMATE || 
@@ -2994,7 +3014,7 @@ void SelfPlay() {
                 printf("DRAW!\nGAME OVER!\n");
             }
 
-            PrintEndGameMetrics(false);
+            PrintEndGameMetrics();
             cout << "============================\n" <<
                     "****************************\n";
 
