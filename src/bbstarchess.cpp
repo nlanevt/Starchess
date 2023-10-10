@@ -2344,7 +2344,6 @@ bool ABORT_GAME = false;
 chrono::time_point<chrono::steady_clock> START_TIME;
 
 //Testing Variables - used for monitoring performance
-//int TIMEOUT_COUNT = 0; //Should get reset when the whole game ends. //GLOBAL
 long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends. //GLOBAL
 long long MAX_SEARCH_TIME = 0; //GLOBAL
 
@@ -2366,7 +2365,6 @@ inline bool StopGame(char id) {
 
     long long time_passed = GetTimePassed();
     if (time_passed > TIME_LIMIT) {
-        //TIMEOUT_COUNT++;
         TIMEOUT_STOPPED = true;
         return true;
     }
@@ -2798,7 +2796,6 @@ void init_variables()
     //Testing Variables
     AVERAGE_SEARCH_TIME = 0;
     MAX_SEARCH_TIME = 0;
-    //TIMEOUT_COUNT = 0;
 
     //In Game Turn counter
     TURN = 0;
@@ -2828,14 +2825,12 @@ void TestBitBoards() {
 }
 
 void PrintEndGameMetrics() {
-    //AVERAGE_SEARCH_TIME = (SelfPlay) ? AVERAGE_SEARCH_TIME / (TURN+1) : 0;
     AVERAGE_SEARCH_TIME = (TURN > 0) ? AVERAGE_SEARCH_TIME / TURN : 0;
 
     printf("TurnCount=%d\n", TURN);
     printf("WhitePieces=%d\n", Count(Occupancies[white]));
     printf("BlackPieces=%d\n", Count(Occupancies[black]));
     printf("TotalPieces=%d\n", Count(Occupancies[both]));
-    //printf("TimeoutCount=%d\n", TIMEOUT_COUNT); 
     printf("AverageSearchTime=%s\n", GetTimeStampString(AVERAGE_SEARCH_TIME).c_str());
     printf("MaxSearchTime=%s\n", GetTimeStampString(MAX_SEARCH_TIME).c_str());
 }
