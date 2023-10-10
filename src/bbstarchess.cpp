@@ -1309,7 +1309,6 @@ U64 BuildTranspositionKey() {
 static inline U64 MakeTTKey(U64 initial_key, long move) {
     if (move == NO_MOVE) return initial_key;
 
-
     char side = get_move_side(move);
     U64 trans_key = initial_key ^ side;
     if (IsNullMove(move)) return trans_key;
@@ -1956,7 +1955,6 @@ inline int Evaluation(char id, char side, bool full_eval) {
     bitboard = globals[id].bitboards[S]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
         score += material_score[S]; score += position_scores[S][block]; 
         if (full_eval && side == white) {
-            //score -= (globals[id].IsEndGame) ? SafeCheckExists(id, black, block) * 10 : SafeCheckExists(id, black, block) * 7;
             score -= (globals[id].IsEndGame) ? GetSafeSphereRegionAttacksPercent(id, black, block) : HasSafeCheck(id, black, block) * 7;
         }
     }
@@ -1975,7 +1973,6 @@ inline int Evaluation(char id, char side, bool full_eval) {
     bitboard = globals[id].bitboards[s]; while((block = ForwardScanPop(&bitboard)) >= 0) { 
         score += material_score[s]; score -= position_scores[S][mirror_score[block]]; 
         if (full_eval && side == black) {
-            //score += (globals[id].IsEndGame) ? SafeCheckExists(id, white, block) * 10 : SafeCheckExists(id, white, block) * 7;
             score += (globals[id].IsEndGame) ? GetSafeSphereRegionAttacksPercent(id, white, block) : HasSafeCheck(id, white, block) * 7;
         }
     }
@@ -2161,7 +2158,6 @@ bool IsInsufficientMaterial() {
     //If both sides have at least one minor piece, no draw
     if (black_octas + black_dodecas == 1 && white_octas + white_dodecas == 1) return false;
 
-   // printf("<InsufficientMaterial>");
     return true;
 }
 
@@ -2177,7 +2173,6 @@ bool IsDrawnGame(Turn turn) {
     //Insufficient Material
     if (IsInsufficientMaterial()) return true;
 
-    
     return false;
 }
 
