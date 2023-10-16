@@ -586,6 +586,23 @@ void print_full_board() {
     printf("  a b c d e f g\n\n"); //bitboard files
 }
 
+void print_fen_string() {
+    string piece = "0";
+    bool piece_found = false;
+    for (int block = 0; block < 343; block++) {
+        piece = "0";
+        for (int type = 0; type < 12 && piece == "0"; type++) {
+            if (GetBit(Bitboards[type], block)) {
+                piece = ascii_pieces[type];
+            }
+        }
+
+        printf("%s", piece.c_str());
+    }
+
+    printf(" %c", (SIDE) ? 'b' : 'w');
+}
+
 void load_bar() {
     cout << "|" ;
     fflush(stdout);
@@ -2709,10 +2726,23 @@ static inline void RootSearch(char id, int ply_depth, char side, int alpha, int 
 static inline void Negamax(char id, int ply_depth, int initial_depth, char side) {
     int alpha = -INF;
     int beta = INF;
+    int depth_counter = 0;
     
     for (int current_depth = initial_depth; current_depth <= ply_depth; current_depth++) {
         if (StopGame(id))
             break;
+
+        //If a thread is about to run depth=d, first check what others are doing, and if half (or more) of the threads are running at depths >= d, 
+        //then skip depth=d (rule is iterative, continue until a suitable depth is found to work on). 
+        //it's a synchronized way of saying that we want (approx.) half threads on some depth d, and half on some depth d+1
+        if (current_depth > initial_depth && current_depth < ply_depth-1) {
+            depth_counter = 0;
+            for (int i = 0; i < THREAD_COUNT; i++) {
+                if (i != id && current_depth >= globals[id].total_depth) depth_counter++;
+            }
+            if (depth_counter >= THREAD_COUNT / 2) current_depth++;
+        }
+        
 
         RootSearch(id, current_depth, side, alpha, beta);
     }
@@ -3247,6 +3277,10 @@ extern "C"
 
     DllExport int GetTurn() {
         return TURN;
+    }
+
+    DllExport int GetSide() {
+        return SIDE;
     }
 }
 
