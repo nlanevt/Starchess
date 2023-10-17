@@ -588,7 +588,6 @@ void print_full_board() {
 
 void print_fen_string() {
     string piece = "0";
-    bool piece_found = false;
     for (int block = 0; block < 343; block++) {
         piece = "0";
         for (int type = 0; type < 12 && piece == "0"; type++) {
