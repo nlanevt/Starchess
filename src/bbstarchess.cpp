@@ -359,6 +359,7 @@ public:
 #define GetBit(bitboard, block) (bitboard.Bits[5 - (block / 64)] & (1ULL << (block % 64)))
 #define PopBit(bitboard, block) (bitboard.Bits[5 - (block / 64)] &= ~(1ULL << (block % 64)))
 #define IsSet(bitboard) (bitboard.Bits[5] > 0 || bitboard.Bits[4] > 0 || bitboard.Bits[3] > 0 || bitboard.Bits[2] > 0 || bitboard.Bits[1] > 0 || bitboard.Bits[0] > 0)
+#define IsBitSet(bitboard, block) (GetBit(bitboard, block) != 0)
 
 static inline int Count(Int343 bitboard) {
     return __builtin_popcountll(bitboard.Bits[5]) + __builtin_popcountll(bitboard.Bits[4])
@@ -1163,6 +1164,32 @@ inline Int343 GetCubeMoves(char id, int block) {
     return attacks;
 }
 
+inline Int343 GetOctaMoves(Int343 occ, int block) {
+    Int343 attacks = octa_edge_masks[block];
+
+    Int343 ray;
+    char dir;
+    for (int i = 0; i < 12 && (dir = octa_directions[block][i]) != NO_DIR; i++) {
+        attacks |= RAYS[block][dir]; ray = RAYS[block][dir] & occ;
+        if (IsSet(ray)) attacks &= (dir % 2) ? ~RAYS[BitScanReverse(ray)][dir] : ~RAYS[BitScanForward(ray)][dir];
+    }
+
+    return attacks;
+}
+
+inline Int343 GetCubeMoves(Int343 occ, int block) {
+    Int343 attacks = cube_edge_masks[block];
+
+    Int343 ray;
+    char dir;
+    for (int i = 0; i < 6 && (dir = cube_directions[block][i]) != NO_DIR; i++) {
+        attacks |= RAYS[block][dir]; ray = RAYS[block][dir] & occ;
+        if (IsSet(ray)) attacks &= (dir % 2) ? ~RAYS[BitScanReverse(ray)][dir] : ~RAYS[BitScanForward(ray)][dir];
+    }
+
+    return attacks;
+}
+
 #define GetTetraCaptures(id, side, block) (tetra_attacks[side][block] & globals[id].occupancies[!side])
 #define GetDodecaCaptures(id, side, block) (dodeca_attacks[block] & globals[id].occupancies[!side])
 #define GetSphereCaptures(id, side, block) (sphere_attacks[block] & globals[id].occupancies[!side])
@@ -1897,6 +1924,16 @@ inline Int343 GetAttacksTo(char id, char attacking_side, int block) {
     return attacks;
 }
 
+inline Int343 GetAttacksTo(char id, int block) {
+    Int343 attacks =    (tetra_attacks[black][block] & globals[id].bitboards[T]) | 
+                        (tetra_attacks[white][block] & globals[id].bitboards[t]) | 
+                        (dodeca_attacks[block] & (globals[id].bitboards[D] | globals[id].bitboards[d])) |
+                        (GetOctaMoves(id, block) & (globals[id].bitboards[O] | globals[id].bitboards[I] | globals[id].bitboards[o] | globals[id].bitboards[i])) |
+                        (GetCubeMoves(id, block) & (globals[id].bitboards[C] | globals[id].bitboards[I] | globals[id].bitboards[c] | globals[id].bitboards[c])) |
+                        (sphere_attacks[block] & (globals[id].bitboards[S] | globals[id].bitboards[s]));                         
+    return attacks;
+}
+
 inline bool HasSafeCheck(char id, char attacking_side, int sphere_block) {
     int block; Int343 attackers;
     
@@ -2029,32 +2066,170 @@ static inline char get_smallest_attacker(char id, Int343 &attacks, char side,  i
     return -1;
 }
 
-static inline int SeeHelper(char id, char side, char piece, int target) {
-    int value, source;
-    
-    Int343 attacks;
-    char attacker = get_smallest_attacker(id, attacks, side, target);
-    value = 0;
+/*
 
-    if (attacker >= 0) {
-        source = ForwardScanPop(&attacks);
-        MakeCapture(id, side, attacker, piece, source, target);
-        value = material_score[piece] - SeeHelper(id, !side, attacker, target);
-        ReverseCapture(id, side, attacker, piece, source, target);
+U64 Board::getLeastValuablePiece(U64 attadef, int bySide, int &piece)
+{
+   for (piece = nWhitePawn + bySide; piece <= nWhiteKing + bySide; piece += 2) {
+      U64 subset = attadef & pieceBB[piece];
+      if ( subset )
+         return subset & -subset; // single bit
+   }
+   return 0; // empty set
+}
+
+int Board::see ( enumSquare toSq, enumPiece target, enumSquare frSq, enumPiece aPiece)
+{
+   int gain[32], d = 0;
+   U64 mayXray = pawns | bishops | rooks | queen;
+   U64 fromSet = 1ULL << frSq;
+   U64 occ     = occupiedBB;
+   U64 attadef = attacksTo( occ, toSq );
+   gain[d]     = value[target];
+   do {
+      d++; // next depth and side
+      gain[d]  = value[aPiece] - gain[d-1]; // speculative store, if defended
+      if (max (-gain[d-1], gain[d]) < 0) break; // pruning does not influence the result
+      attadef ^= fromSet; // reset bit in set to traverse
+      occ     ^= fromSet; // reset bit in temporary occupancy (for x-Rays)
+      if ( fromSet & mayXray )
+         attadef |= considerXrays(occ, ..);
+      fromSet  = getLeastValuablePiece (attadef, d & 1, aPiece);
+   } while (fromSet);
+   while (--d)
+      gain[d-1]= -max (-gain[d-1], gain[d])
+   return gain[0];
+}
+*/
+
+static inline Int343 GetFirstBit(Int343 bitboard) {
+    Int343 result;
+    if (bitboard.Bits[5] != 0) result.Bits[5] |= (bitboard.Bits[5] & -bitboard.Bits[5]); 
+    else if (bitboard.Bits[4] != 0) result.Bits[4] |= (bitboard.Bits[4] & -bitboard.Bits[4]);
+    else if (bitboard.Bits[3] != 0) result.Bits[3] |= (bitboard.Bits[3] & -bitboard.Bits[3]);
+    else if (bitboard.Bits[2] != 0) result.Bits[2] |= (bitboard.Bits[2] & -bitboard.Bits[2]);
+    else if (bitboard.Bits[1] != 0) result.Bits[1] |= (bitboard.Bits[1] & -bitboard.Bits[1]);
+    else if (bitboard.Bits[0] != 0) result.Bits[0] |= (bitboard.Bits[0] & -bitboard.Bits[0]);
+    return result;
+}
+
+static inline Int343 getLeastValuablePiece(char id, Int343 attadef, char side, char &piece)
+{
+    Int343 subset;
+    for (piece = (6 * side); piece <= S + (6 * side); piece++) {
+        subset = attadef & globals[id].bitboards[piece];
+        if ( IsSet(subset) ) {
+            piece = piece % 6;
+            return GetFirstBit(subset); // single bit
+        }
     }
 
-    return value;
+    subset = {0, 0, 0, 0, 0, 0};
+    return subset;
+}
+
+/*inline Int343 GetOctaMoves(Int343 occ, int block) {
+    Int343 attacks = octa_edge_masks[block];
+
+    Int343 ray;
+    char dir;
+    for (int i = 0; i < 12 && (dir = octa_directions[block][i]) != NO_DIR; i++) {
+        attacks |= RAYS[block][dir]; ray = RAYS[block][dir] & occ;
+        if (IsSet(ray)) attacks &= (dir % 2) ? ~RAYS[BitScanReverse(ray)][dir] : ~RAYS[BitScanForward(ray)][dir];
+    }
+
+    return attacks;
+}
+
+inline Int343 GetCubeMoves(Int343 occ, int block) {
+    Int343 attacks = cube_edge_masks[block];
+
+    Int343 ray;
+    char dir;
+    for (int i = 0; i < 6 && (dir = cube_directions[block][i]) != NO_DIR; i++) {
+        attacks |= RAYS[block][dir]; ray = RAYS[block][dir] & occ;
+        if (IsSet(ray)) attacks &= (dir % 2) ? ~RAYS[BitScanReverse(ray)][dir] : ~RAYS[BitScanForward(ray)][dir];
+    }
+
+    return attacks;
+}*/
+
+static inline Int343 GetHiddenSlidingAttacker(int target, Int343 blocker, Int343 hiders) {
+    Int343 attacker; Int343 ray; char dir; int d;
+
+    //Find direction between target and blocker
+
+    for (d = 0; d < 12 && (dir = octa_directions[target][d] != NO_DIR); d++) {
+
+        if (IsSet((RAYS[target][dir] & blocker))) {
+            ray = RAYS[target][dir] & hiders;
+            if (IsSet(ray)) { //There are hiders behind the blocker
+                if (dir % 2) 
+                    SetBit(attacker, BitScanReverse(ray));
+                else
+                    SetBit(attacker, BitScanForward(ray));
+            }
+
+            return attacker;
+        }
+    }
+
+    for (d = 0; d < 6 && (dir = cube_directions[target][d]) != NO_DIR; d++) {
+        if (IsSet((RAYS[target][dir] & blocker))) {
+            ray = RAYS[target][dir] & hiders;
+            if (IsSet(ray)) { //There are hiders behind the blocker
+                if (dir % 2) 
+                    SetBit(attacker, BitScanReverse(ray));
+                else
+                    SetBit(attacker, BitScanForward(ray));
+            }
+
+            return attacker;
+        }
+    }
+
+    return attacker;
 }
 
 //Static Exchange Evaluation
 //Needed for scoring captures. Returns a positive, negative or zero value.
 //Positive value is good, zero value is draw, and negative is bad
 static inline int See(char id, char side, char piece, char capture, int source, int target) {
-    int value = 0;
-    MakeKnownMove(id, side, piece, capture, 0, source, target);
-    value = SeeHelper(id, !side, piece, target);
-    ReverseMove(id, side, piece, capture, 0, source, target);
-    return value;
+    int gain[32], d = 0;
+    Int343 mayXray =    globals[id].bitboards[T] | globals[id].bitboards[t] | 
+                        globals[id].bitboards[O] | globals[id].bitboards[o] |
+                        globals[id].bitboards[C] | globals[id].bitboards[c] |
+                        globals[id].bitboards[I] | globals[id].bitboards[i];
+
+    Int343 fromSet; SetBit(fromSet, source);
+    Int343 occ = globals[id].occupancies[both];
+    Int343 attadef = GetAttacksTo(id, target);
+    gain[d] = material_score[capture];
+
+    do {
+        d++; side = !side; // next depth and side
+        
+        gain[d]  = material_score[piece] - gain[d-1]; // speculative store, if defended
+        if (MaxValue(-gain[d-1], gain[d]) < 0) break; // pruning does not influence the result
+        attadef ^= fromSet; // reset bit in set to traverse
+        occ     ^= fromSet; // reset bit in temporary occupancy (for x-Rays)
+
+        if ( IsSet((fromSet & mayXray)) ) {
+            mayXray ^= fromSet;
+
+            attadef |= (GetOctaMoves(occ, target) | GetCubeMoves(occ, target)) & (mayXray ^ attadef);
+
+            //attadef |= GetHiddenSlidingAttacker(target, fromSet, mayXray ^ attadef);
+        }
+
+        fromSet  = getLeastValuablePiece (id, attadef, side, piece);
+
+    } while (IsSet(fromSet));
+
+    while (--d)
+        gain[d-1] = -MaxValue(-gain[d-1], gain[d]);
+
+    return gain[0];
 }
 
 
@@ -2351,7 +2526,9 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
 \**********************************/
 #define FullDepthMoves 4
 #define ReductionLimit 2
-#define TIME_LIMIT 4000000 //4 seconds
+#define MAX_TIME_LIMIT 4000000 //4 seconds
+
+long long TIME_LIMIT = MAX_TIME_LIMIT;
 
 long NODES_SEARCHED = 0; //GLOBAL
 int FINAL_DEPTH = 0;
@@ -3314,6 +3491,13 @@ extern "C"
 int main() {
 
     int debug = 1; //0
+    int restricted_testing = 0;
+
+    if (restricted_testing) {
+        THREAD_COUNT = 1;
+        DEPTH = 8;
+        TIME_LIMIT = 30000000; //30 Seconds
+    }
 
     // if debugging
     if (debug)
