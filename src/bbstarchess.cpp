@@ -399,6 +399,17 @@ static inline int BitScanReverse(Int343 bitboard) {
     return -1;
 }
 
+static inline Int343 GetFirstBit(Int343 bitboard) {
+    Int343 result;
+    if (bitboard.Bits[5] != 0) result.Bits[5] |= (bitboard.Bits[5] & -bitboard.Bits[5]); 
+    else if (bitboard.Bits[4] != 0) result.Bits[4] |= (bitboard.Bits[4] & -bitboard.Bits[4]);
+    else if (bitboard.Bits[3] != 0) result.Bits[3] |= (bitboard.Bits[3] & -bitboard.Bits[3]);
+    else if (bitboard.Bits[2] != 0) result.Bits[2] |= (bitboard.Bits[2] & -bitboard.Bits[2]);
+    else if (bitboard.Bits[1] != 0) result.Bits[1] |= (bitboard.Bits[1] & -bitboard.Bits[1]);
+    else if (bitboard.Bits[0] != 0) result.Bits[0] |= (bitboard.Bits[0] & -bitboard.Bits[0]);
+    return result;
+}
+
 #define BitScan(side, bitboard) (side == white ? BitScanReverse(bitboard) : BitScanForward(bitboard))
 
 #define MaxValue(a, b) (a >= b ? a : b)
@@ -1908,6 +1919,7 @@ inline void ReverseMove(char id, char side, int attacker, char capture, char pro
     }
 }
 
+//Gets all attacks from a certain side
 inline Int343 GetAttacksTo(char id, char attacking_side, int block) {
     Int343 attacks = (attacking_side == white) ? ((tetra_attacks[black][block] & globals[id].bitboards[T]) | 
                                                   (dodeca_attacks[block] & globals[id].bitboards[D]) |
@@ -1924,6 +1936,7 @@ inline Int343 GetAttacksTo(char id, char attacking_side, int block) {
     return attacks;
 }
 
+//Gets all attacks from both sides
 inline Int343 GetAttacksTo(char id, int block) {
     Int343 attacks =    (tetra_attacks[black][block] & globals[id].bitboards[T]) | 
                         (tetra_attacks[white][block] & globals[id].bitboards[t]) | 
@@ -2102,17 +2115,6 @@ int Board::see ( enumSquare toSq, enumPiece target, enumSquare frSq, enumPiece a
 }
 */
 
-static inline Int343 GetFirstBit(Int343 bitboard) {
-    Int343 result;
-    if (bitboard.Bits[5] != 0) result.Bits[5] |= (bitboard.Bits[5] & -bitboard.Bits[5]); 
-    else if (bitboard.Bits[4] != 0) result.Bits[4] |= (bitboard.Bits[4] & -bitboard.Bits[4]);
-    else if (bitboard.Bits[3] != 0) result.Bits[3] |= (bitboard.Bits[3] & -bitboard.Bits[3]);
-    else if (bitboard.Bits[2] != 0) result.Bits[2] |= (bitboard.Bits[2] & -bitboard.Bits[2]);
-    else if (bitboard.Bits[1] != 0) result.Bits[1] |= (bitboard.Bits[1] & -bitboard.Bits[1]);
-    else if (bitboard.Bits[0] != 0) result.Bits[0] |= (bitboard.Bits[0] & -bitboard.Bits[0]);
-    return result;
-}
-
 static inline Int343 getLeastValuablePiece(char id, Int343 attadef, char side, char &piece)
 {
     Int343 subset;
@@ -2154,41 +2156,30 @@ inline Int343 GetCubeMoves(Int343 occ, int block) {
     return attacks;
 }*/
 
-static inline Int343 GetHiddenSlidingAttacker(int target, Int343 blocker, Int343 hiders) {
-    Int343 attacker; Int343 ray; char dir; int d;
+static inline Int343 GetHiddenSlidingAttackers(int target, Int343 blocker, Int343 occ) {
+    Int343 attacks; Int343 ray; char dir; int d;
 
     //Find direction between target and blocker
 
     for (d = 0; d < 12 && (dir = octa_directions[target][d] != NO_DIR); d++) {
-
         if (IsSet((RAYS[target][dir] & blocker))) {
-            ray = RAYS[target][dir] & hiders;
-            if (IsSet(ray)) { //There are hiders behind the blocker
-                if (dir % 2) 
-                    SetBit(attacker, BitScanReverse(ray));
-                else
-                    SetBit(attacker, BitScanForward(ray));
-            }
-
-            return attacker;
+            attacks |= RAYS[target][dir]; ray = RAYS[target][dir] & occ;
+            if (IsSet(ray)) attacks &= (dir % 2) ? ~RAYS[BitScanReverse(ray)][dir] : ~RAYS[BitScanForward(ray)][dir]; 
+            
+            return attacks;
         }
     }
 
     for (d = 0; d < 6 && (dir = cube_directions[target][d]) != NO_DIR; d++) {
         if (IsSet((RAYS[target][dir] & blocker))) {
-            ray = RAYS[target][dir] & hiders;
-            if (IsSet(ray)) { //There are hiders behind the blocker
-                if (dir % 2) 
-                    SetBit(attacker, BitScanReverse(ray));
-                else
-                    SetBit(attacker, BitScanForward(ray));
-            }
-
-            return attacker;
+            attacks |= RAYS[target][dir]; ray = RAYS[target][dir] & occ;
+            if (IsSet(ray)) attacks &= (dir % 2) ? ~RAYS[BitScanReverse(ray)][dir] : ~RAYS[BitScanForward(ray)][dir]; 
+            
+            return attacks;
         }
     }
 
-    return attacker;
+    return attacks;
 }
 
 //Static Exchange Evaluation
@@ -2216,10 +2207,7 @@ static inline int See(char id, char side, char piece, char capture, int source, 
 
         if ( IsSet((fromSet & mayXray)) ) {
             mayXray ^= fromSet;
-
             attadef |= (GetOctaMoves(occ, target) | GetCubeMoves(occ, target)) & (mayXray ^ attadef);
-
-            //attadef |= GetHiddenSlidingAttacker(target, fromSet, mayXray ^ attadef);
         }
 
         fromSet  = getLeastValuablePiece (id, attadef, side, piece);
@@ -2231,7 +2219,6 @@ static inline int See(char id, char side, char piece, char capture, int source, 
 
     return gain[0];
 }
-
 
 static inline int ScoreMove(char id, int list_index, long move, char side, char type, char capture, char promotion, int target) {
     //If PV Move
@@ -2579,10 +2566,12 @@ string GetTimeStampString(long long timestamp) {
     return to_string(minutes) + ":" + to_string(seconds) + ":" + to_string(milliseconds);
 }
 
-inline int FutilityMoveCount(bool improving, int depth) {
+/*inline int FutilityMoveCount(bool improving, int depth) {
     return improving ? (9 + depth * depth)
                      : (9 + depth * depth) / 2;
-}
+}*/
+
+#define FutilityMoveCount(improving, depth) (improving ? (9 + depth * depth) : (9 + depth * depth) / 2)
 
 static inline int QSearch(char id, int ply_depth, int list_index, char side, U64 hash_key, int alpha, int beta) {
     if (ABORT_GAME) return 0;
