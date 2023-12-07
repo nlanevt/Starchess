@@ -754,7 +754,7 @@ Int343 build_tetra_isolation_mask(int rf) {
 //>>13 down left
 //>>15 down right
 //>>63 down forward
-//<35 down back
+///<<35 down back
 Int343 build_dodeca_attacks(int block) {
     Int343 attacks; //result attacks board
     Int343 bitboard; // piece bitboard
@@ -1175,6 +1175,7 @@ inline Int343 GetCubeMoves(char id, int block) {
     return attacks;
 }
 
+//NOTE: Used for See XRay Calculations
 inline Int343 GetOctaMoves(Int343 occ, int block) {
     Int343 attacks = octa_edge_masks[block];
 
@@ -1188,6 +1189,7 @@ inline Int343 GetOctaMoves(Int343 occ, int block) {
     return attacks;
 }
 
+//NOTE: Used for See XRay Calculations
 inline Int343 GetCubeMoves(Int343 occ, int block) {
     Int343 attacks = cube_edge_masks[block];
 
@@ -1932,7 +1934,6 @@ inline Int343 GetAttacksTo(char id, char attacking_side, int block) {
                                                   (GetCubeMoves(id, block) & (globals[id].bitboards[c] | globals[id].bitboards[i])) |
                                                   (sphere_attacks[block] & globals[id].bitboards[s]));
 
-
     return attacks;
 }
 
@@ -2046,75 +2047,7 @@ inline int Evaluation(char id, char side, bool full_eval) {
     return score * ((side == white) ? 1 : -1);
 }
 
-//Side is the attacking side.
-//attacks is changed to contain the set of attacks that could occur for the smallest attacker.
-static inline char get_smallest_attacker(char id, Int343 &attacks, char side,  int block) {
-    
-    // attacked by tetras
-    attacks = (side == white) ? (tetra_attacks[black][block] & globals[id].bitboards[T]) : (tetra_attacks[white][block] & globals[id].bitboards[t]);
-    if (IsSet(attacks)) return T;
-
-    // attacked by dodecas
-    attacks = dodeca_attacks[block] & ((side == white) ? globals[id].bitboards[D] : globals[id].bitboards[d]);
-    if (IsSet(attacks)) return D;
-
-    // attacked by octas
-    Int343 octa_moves = GetOctaMoves(id, block);
-    attacks = octa_moves & ((side == white) ? globals[id].bitboards[O] : globals[id].bitboards[o]);
-    if (IsSet(attacks)) return O;
-
-    // attacked by Cube
-    Int343 cube_moves = GetCubeMoves(id, block);
-    attacks = cube_moves & ((side == white) ? globals[id].bitboards[C] : globals[id].bitboards[c]);
-    if (IsSet(attacks)) return C;
-
-    // attacked by Icosa
-    attacks = (cube_moves | octa_moves) & ((side == white) ? globals[id].bitboards[I] : globals[id].bitboards[i]);
-    if (IsSet(attacks)) return I;
-
-    // attacked by Sphere
-    attacks = sphere_attacks[block] & ((side == white) ? globals[id].bitboards[S] : globals[id].bitboards[s]);
-    if (IsSet(attacks)) return S;
-
-    return -1;
-}
-
-/*
-
-U64 Board::getLeastValuablePiece(U64 attadef, int bySide, int &piece)
-{
-   for (piece = nWhitePawn + bySide; piece <= nWhiteKing + bySide; piece += 2) {
-      U64 subset = attadef & pieceBB[piece];
-      if ( subset )
-         return subset & -subset; // single bit
-   }
-   return 0; // empty set
-}
-
-int Board::see ( enumSquare toSq, enumPiece target, enumSquare frSq, enumPiece aPiece)
-{
-   int gain[32], d = 0;
-   U64 mayXray = pawns | bishops | rooks | queen;
-   U64 fromSet = 1ULL << frSq;
-   U64 occ     = occupiedBB;
-   U64 attadef = attacksTo( occ, toSq );
-   gain[d]     = value[target];
-   do {
-      d++; // next depth and side
-      gain[d]  = value[aPiece] - gain[d-1]; // speculative store, if defended
-      if (max (-gain[d-1], gain[d]) < 0) break; // pruning does not influence the result
-      attadef ^= fromSet; // reset bit in set to traverse
-      occ     ^= fromSet; // reset bit in temporary occupancy (for x-Rays)
-      if ( fromSet & mayXray )
-         attadef |= considerXrays(occ, ..);
-      fromSet  = getLeastValuablePiece (attadef, d & 1, aPiece);
-   } while (fromSet);
-   while (--d)
-      gain[d-1]= -max (-gain[d-1], gain[d])
-   return gain[0];
-}
-*/
-
+//See Helper Function
 static inline Int343 getLeastValuablePiece(char id, Int343 attadef, char side, char &piece)
 {
     Int343 subset;
@@ -2130,61 +2063,10 @@ static inline Int343 getLeastValuablePiece(char id, Int343 attadef, char side, c
     return subset;
 }
 
-/*inline Int343 GetOctaMoves(Int343 occ, int block) {
-    Int343 attacks = octa_edge_masks[block];
-
-    Int343 ray;
-    char dir;
-    for (int i = 0; i < 12 && (dir = octa_directions[block][i]) != NO_DIR; i++) {
-        attacks |= RAYS[block][dir]; ray = RAYS[block][dir] & occ;
-        if (IsSet(ray)) attacks &= (dir % 2) ? ~RAYS[BitScanReverse(ray)][dir] : ~RAYS[BitScanForward(ray)][dir];
-    }
-
-    return attacks;
-}
-
-inline Int343 GetCubeMoves(Int343 occ, int block) {
-    Int343 attacks = cube_edge_masks[block];
-
-    Int343 ray;
-    char dir;
-    for (int i = 0; i < 6 && (dir = cube_directions[block][i]) != NO_DIR; i++) {
-        attacks |= RAYS[block][dir]; ray = RAYS[block][dir] & occ;
-        if (IsSet(ray)) attacks &= (dir % 2) ? ~RAYS[BitScanReverse(ray)][dir] : ~RAYS[BitScanForward(ray)][dir];
-    }
-
-    return attacks;
-}*/
-
-static inline Int343 GetHiddenSlidingAttackers(int target, Int343 blocker, Int343 occ) {
-    Int343 attacks; Int343 ray; char dir; int d;
-
-    //Find direction between target and blocker
-
-    for (d = 0; d < 12 && (dir = octa_directions[target][d] != NO_DIR); d++) {
-        if (IsSet((RAYS[target][dir] & blocker))) {
-            attacks |= RAYS[target][dir]; ray = RAYS[target][dir] & occ;
-            if (IsSet(ray)) attacks &= (dir % 2) ? ~RAYS[BitScanReverse(ray)][dir] : ~RAYS[BitScanForward(ray)][dir]; 
-            
-            return attacks;
-        }
-    }
-
-    for (d = 0; d < 6 && (dir = cube_directions[target][d]) != NO_DIR; d++) {
-        if (IsSet((RAYS[target][dir] & blocker))) {
-            attacks |= RAYS[target][dir]; ray = RAYS[target][dir] & occ;
-            if (IsSet(ray)) attacks &= (dir % 2) ? ~RAYS[BitScanReverse(ray)][dir] : ~RAYS[BitScanForward(ray)][dir]; 
-            
-            return attacks;
-        }
-    }
-
-    return attacks;
-}
-
-//Static Exchange Evaluation
+//See = Static Exchange Evaluation
 //Needed for scoring captures. Returns a positive, negative or zero value.
 //Positive value is good, zero value is draw, and negative is bad
+//TODO: Improve how XRay Moves are handled in SEE. There are some inefficiencies
 static inline int See(char id, char side, char piece, char capture, int source, int target) {
     int gain[32], d = 0;
     Int343 mayXray =    globals[id].bitboards[T] | globals[id].bitboards[t] | 
@@ -3471,6 +3353,7 @@ extern "C"
 * Y Add Code to handle being in_check
 * Y Static Exchange Evaluation
 * Y SEE Pruning
+* Y Iterative See Move Ordering
 * N Add Mobility Scoring to Evaluation
 * Y Add Check Scoring to Evaluation
 * Y Implement Search Timeout
