@@ -9,6 +9,10 @@
 #include <chrono>
 #include <thread>
 #include <mutex>
+//#include "Int343_64.h"
+#include  "Int343_64.h"
+#include "tests.h"
+
 
 using namespace std;
 
@@ -193,225 +197,6 @@ enum {
     G7a, G7b, G7c, G7d, G7e, G7f, G7g
 };
 
-
-/**********************************\
- ==================================
- 
-          Bit manipulations
- 
- ==================================
-\**********************************/
-#define U64 unsigned long long
-
-struct Int343 {
-
-public:
-    U64 Bits[6];
-
-    Int343() {
-        Bits[0] = 0;
-        Bits[1] = 0;
-        Bits[2] = 0;
-        Bits[3] = 0;
-        Bits[4] = 0;
-        Bits[5] = 0;
-    }
-
-    Int343(U64 zero, U64 one, U64 two, U64 three, U64 four, U64 five) {
-        Bits[0] = zero;
-        Bits[1] = one;
-        Bits[2] = two;
-        Bits[3] = three;
-        Bits[4] = four;
-        Bits[5] = five;
-    }
-
-    void Print() {
-        printf("%lluULL, %lluULL, %lluULL, %lluULL, %lluULL, %lluULL\n", Bits[0], Bits[1], Bits[2], Bits[3], Bits[4], Bits[5]);
-    }
-
-    inline U64 &operator[](int i) {
-         return Bits[i];
-    }
-
-    inline Int343 operator<<(int count) {
-        Int343 result;
-        int start = count / 64;
-        int shift = count % 64;
-        for (int i = 0; i < 6; i++) {
-            if (start < 5)
-                result.Bits[i] = (Bits[start] << shift) | ((shift > 0) ? Bits[start + 1] >> (64 - shift) : 0ULL);
-            else if (start < 6)
-                result.Bits[i] = Bits[start] << shift;
-            else
-                result.Bits[i] = 0ULL;
-            start++;
-        }
-        result.Bits[0] &= 0x7FFFFF;
-        return result;
-    }
-
-    inline Int343 operator>>(int count) {
-        Int343 result;
-        int start = 5 - (count / 64);
-        int shift = count % 64;
-        for (int i = 5; i >= 0; i--) {
-            if (start > 0)
-                result[i] = (Bits[start] >> shift) | ((shift > 0) ? Bits[start - 1] << (64 - shift) : 0ULL);
-            else if (start == 0)
-                result.Bits[i] = (Bits[start] >> shift);
-            else
-                result.Bits[i] = 0ULL;
-            start--;
-        }
-        return result;
-    }
-
-    inline void operator&=(Int343 other) {
-        Bits[0] &= other.Bits[0];
-        Bits[1] &= other.Bits[1];
-        Bits[2] &= other.Bits[2];
-        Bits[3] &= other.Bits[3];
-        Bits[4] &= other.Bits[4];
-        Bits[5] &= other.Bits[5];
-    }
-
-    inline Int343 operator&(Int343 other) {
-        Int343 result;
-        result.Bits[0] = Bits[0] & other.Bits[0];
-        result.Bits[1] = Bits[1] & other.Bits[1];
-        result.Bits[2] = Bits[2] & other.Bits[2];
-        result.Bits[3] = Bits[3] & other.Bits[3];
-        result.Bits[4] = Bits[4] & other.Bits[4];
-        result.Bits[5] = Bits[5] & other.Bits[5];
-        return result;
-    }
-
-    inline void operator|=(Int343 other) {
-        Bits[0] |= other.Bits[0];
-        Bits[1] |= other.Bits[1];
-        Bits[2] |= other.Bits[2];
-        Bits[3] |= other.Bits[3];
-        Bits[4] |= other.Bits[4];
-        Bits[5] |= other.Bits[5];
-    }
-
-    inline Int343 operator|(Int343 other) {
-        Int343 result;
-        result.Bits[0] = Bits[0] | other.Bits[0];
-        result.Bits[1] = Bits[1] | other.Bits[1];
-        result.Bits[2] = Bits[2] | other.Bits[2];
-        result.Bits[3] = Bits[3] | other.Bits[3];
-        result.Bits[4] = Bits[4] | other.Bits[4];
-        result.Bits[5] = Bits[5] | other.Bits[5];
-        return result;
-    }
-
-    inline void operator^=(Int343 other) {
-        Bits[0] ^= other.Bits[0];
-        Bits[1] ^= other.Bits[1];
-        Bits[2] ^= other.Bits[2];
-        Bits[3] ^= other.Bits[3];
-        Bits[4] ^= other.Bits[4];
-        Bits[5] ^= other.Bits[5];
-    }
-    
-    inline Int343 operator^(Int343 other) {
-        Int343 result;
-        result.Bits[0] = Bits[0] ^ other.Bits[0];
-        result.Bits[1] = Bits[1] ^ other.Bits[1];
-        result.Bits[2] = Bits[2] ^ other.Bits[2];
-        result.Bits[3] = Bits[3] ^ other.Bits[3];
-        result.Bits[4] = Bits[4] ^ other.Bits[4];
-        result.Bits[5] = Bits[5] ^ other.Bits[5];
-        return result;
-    }
-    
-    inline Int343 operator~() {
-        Int343 result;
-        result.Bits[0] = ~Bits[0];
-        result.Bits[1] = ~Bits[1];
-        result.Bits[2] = ~Bits[2];
-        result.Bits[3] = ~Bits[3];
-        result.Bits[4] = ~Bits[4];
-        result.Bits[5] = ~Bits[5];
-        result.Bits[0] &= 0x7FFFFF;
-        return result;
-    }
-
-    inline bool operator==(Int343 other) {
-        return Bits[0] == other.Bits[0] &&
-            Bits[1] == other.Bits[1] &&
-            Bits[2] == other.Bits[2] &&
-            Bits[3] == other.Bits[3] &&
-            Bits[4] == other.Bits[4] &&
-            Bits[5] == other.Bits[5];
-    }
-
-    inline bool operator!() {
-        return !Bits[5] && !Bits[4] && !Bits[3] &&
-               !Bits[2] && !Bits[1] && !Bits[0];
-    }
-};
-
-
-#define SetBit(bitboard, block) (bitboard.Bits[5 - (block / 64)] |= 1ULL << (block % 64))
-#define GetBit(bitboard, block) (bitboard.Bits[5 - (block / 64)] & (1ULL << (block % 64)))
-#define PopBit(bitboard, block) (bitboard.Bits[5 - (block / 64)] &= ~(1ULL << (block % 64)))
-#define IsSet(bitboard) (bitboard.Bits[5] > 0 || bitboard.Bits[4] > 0 || bitboard.Bits[3] > 0 || bitboard.Bits[2] > 0 || bitboard.Bits[1] > 0 || bitboard.Bits[0] > 0)
-#define IsBitSet(bitboard, block) (GetBit(bitboard, block) != 0)
-
-static inline int Count(Int343 bitboard) {
-    return __builtin_popcountll(bitboard.Bits[5]) + __builtin_popcountll(bitboard.Bits[4])
-         + __builtin_popcountll(bitboard.Bits[3]) + __builtin_popcountll(bitboard.Bits[2])
-         + __builtin_popcountll(bitboard.Bits[1]) + __builtin_popcountll(bitboard.Bits[0]);
-}
-
-static inline int ForwardScanPop(Int343 *bitboard) {
-    int result = 0;
-    if (bitboard->Bits[5] != 0) {result = __builtin_ctzll(bitboard->Bits[5]); bitboard->Bits[5] &= bitboard->Bits[5] - 1; return result;}
-    if (bitboard->Bits[4] != 0) {result = 64 + __builtin_ctzll(bitboard->Bits[4]); bitboard->Bits[4] &= bitboard->Bits[4] - 1; return result;}
-    if (bitboard->Bits[3] != 0) {result = 128 + __builtin_ctzll(bitboard->Bits[3]); bitboard->Bits[3] &= bitboard->Bits[3] - 1; return result;}
-    if (bitboard->Bits[2] != 0) {result = 192 + __builtin_ctzll(bitboard->Bits[2]); bitboard->Bits[2] &= bitboard->Bits[2] - 1; return result;}
-    if (bitboard->Bits[1] != 0) {result = 256 + __builtin_ctzll(bitboard->Bits[1]); bitboard->Bits[1] &= bitboard->Bits[1] - 1; return result;}
-    if (bitboard->Bits[0] != 0) {result = 320 + __builtin_ctzll(bitboard->Bits[0]); bitboard->Bits[0] &= bitboard->Bits[0] - 1; return result;}
-
-    return -1;
-}
-
-static inline int BitScanForward(Int343 bitboard) {
-    if (bitboard.Bits[5] != 0) return __builtin_ctzll(bitboard.Bits[5]);
-    if (bitboard.Bits[4] != 0) return 64 + __builtin_ctzll(bitboard.Bits[4]);
-    if (bitboard.Bits[3] != 0) return 128 + __builtin_ctzll(bitboard.Bits[3]);
-    if (bitboard.Bits[2] != 0) return 192 + __builtin_ctzll(bitboard.Bits[2]);
-    if (bitboard.Bits[1] != 0) return 256 + __builtin_ctzll(bitboard.Bits[1]);
-    if (bitboard.Bits[0] != 0) return 320 + __builtin_ctzll(bitboard.Bits[0]);
-    return -1;
-}
-
-static inline int BitScanReverse(Int343 bitboard) {
-    if (bitboard.Bits[0] != 0) return 320 + (63 - __builtin_clzll(bitboard.Bits[0]));
-    if (bitboard.Bits[1] != 0) return 256 + (63 - __builtin_clzll(bitboard.Bits[1]));
-    if (bitboard.Bits[2] != 0) return 192 + (63 - __builtin_clzll(bitboard.Bits[2]));
-    if (bitboard.Bits[3] != 0) return 128 + (63 - __builtin_clzll(bitboard.Bits[3]));
-    if (bitboard.Bits[4] != 0) return 64 + (63 - __builtin_clzll(bitboard.Bits[4]));
-    if (bitboard.Bits[5] != 0) return 63 - __builtin_clzll(bitboard.Bits[5]);
-    return -1;
-}
-
-static inline Int343 GetFirstBit(Int343 bitboard) {
-    Int343 result;
-    if (bitboard.Bits[5] != 0) result.Bits[5] |= (bitboard.Bits[5] & -bitboard.Bits[5]); 
-    else if (bitboard.Bits[4] != 0) result.Bits[4] |= (bitboard.Bits[4] & -bitboard.Bits[4]);
-    else if (bitboard.Bits[3] != 0) result.Bits[3] |= (bitboard.Bits[3] & -bitboard.Bits[3]);
-    else if (bitboard.Bits[2] != 0) result.Bits[2] |= (bitboard.Bits[2] & -bitboard.Bits[2]);
-    else if (bitboard.Bits[1] != 0) result.Bits[1] |= (bitboard.Bits[1] & -bitboard.Bits[1]);
-    else if (bitboard.Bits[0] != 0) result.Bits[0] |= (bitboard.Bits[0] & -bitboard.Bits[0]);
-    return result;
-}
-
-#define BitScan(side, bitboard) (side == white ? BitScanReverse(bitboard) : BitScanForward(bitboard))
-
 #define MaxValue(a, b) (a >= b ? a : b)
 
 /**********************************\
@@ -455,7 +240,7 @@ static inline void AddToTurnList(Turn turn) {
  ==================================
 \**********************************/
 
-void print_bitboard(Int343 bitboard) {
+void print_bb(Int343 bitboard) {
     printf("\n");
 
     for (int depth = 6; depth >= 0; depth--) {
@@ -1099,7 +884,7 @@ struct SearchResult {
     }
 };
 
-#define MAX_THREADS 8 //8
+#define MAX_THREADS 1 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -2983,14 +2768,17 @@ void SelfPlay() {
 
     init_variables();
     init_bitboards((char *)START_POSITION);
-    
+
     while (true) {
         if (log_timed) {
             log_counter++;
             if (log_counter >= log_max) {log_timed = false; is_continuous = false; log_max = 0;}
         }
 
-        if (!log_only && !log_timed && !new_game) print_full_board();
+        if (!log_only && !log_timed && !new_game) {
+            print_full_board();
+           // print_bb(Occupancies[white]);
+        }
 
         response = "";
         if (!is_continuous) {
@@ -3216,12 +3004,12 @@ extern "C"
 
     DllExport U64 GetBitboard(int side, int type, int index) {
         if (index >= 6 || type >= 6) return 0ULL;
-        return Bitboards[(side * 6) + type].Bits[index];
+        return GetBitsU64(Bitboards[(side * 6) + type], index);
     }
 
     DllExport U64 GetOccupancies(int side, int index) {
         if (side >= 3 || index >= 6) return 0ULL;
-        return Occupancies[side].Bits[index];
+        return GetBitsU64(Occupancies[side], index);
     }
 
     DllExport int GetBBCapture(int side, int target) {
@@ -3308,7 +3096,7 @@ extern "C"
     //Used for grabbing the info in BB_VALUE
     //We can't return Int343, so we need a helper to access the individual 64bit long values.
     DllExport U64 GetBBValue(int index) {
-        return BB_VALUE.Bits[index];
+        return GetBitsU64(BB_VALUE, index);
     }
 
     DllExport long GetMoveAtTurn(int turn) {
@@ -3362,8 +3150,9 @@ extern "C"
 */
 int main() {
 
-    int debug = 1; //0
-    int restricted_testing = 0;
+    bool play_auto = true; //0
+    bool restricted_testing = false;
+    bool run_tests = true;
 
     if (restricted_testing) {
         THREAD_COUNT = 1;
@@ -3371,11 +3160,18 @@ int main() {
         TIME_LIMIT = 30000000; //30 Seconds
     }
 
-    // if debugging
-    if (debug)
-    {
-        SelfPlay();
+    if (run_tests) {
+        TestSetGetPop();
+        TestOperators();
+        TestLeftRightShifts();
+        TestBitScanMethods();
+        TestForwardScanPop();
+        TestGetFirstBit();
     }
+    else if (play_auto)
+    {
+       //SelfPlay();
+    }  
 
     return 0;
 }
