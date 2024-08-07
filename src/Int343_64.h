@@ -7,7 +7,9 @@
 \**********************************/
 
 #define U64 unsigned long long
- #define U128 unsigned __int128
+#define U128 unsigned __int128 //Not in use
+#define GetHigh(value128) ((U64) (value128 >> 64)) //Not in use
+#define GetLow(value128) ((U64) value128) //Not in use
 
 struct Int343 {
 

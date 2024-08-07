@@ -9,10 +9,9 @@
 #include <chrono>
 #include <thread>
 #include <mutex>
-//#include "Int343_64.h"
-#include  "Int343_64.h"
+#include "Int343_64.h"
+#include "utils.h"
 #include "tests.h"
-
 
 using namespace std;
 
@@ -197,8 +196,6 @@ enum {
     G7a, G7b, G7c, G7d, G7e, G7f, G7g
 };
 
-#define MaxValue(a, b) (a >= b ? a : b)
-
 /**********************************\
  ==================================
  
@@ -341,13 +338,12 @@ void init_bitboards(char * fen) {
     Occupancies[both] |= Occupancies[black];
 }
 
-void print_full_board() {
+void print_full_board_vertical() {
     string piece = "0";
     int block = 0;
     bool piece_found = false;
-    printf("\n");
     
-    printf("Turn %d = %s\n", TURN, SIDE ? "Black" : "White");
+    printf("Turn %d - %s\n", TURN+1, SIDE ? "Black" : "White");
     for (int depth = 6; depth >= 0; depth--) {
         printf("%c", ZSymbols[depth]);
 
@@ -383,6 +379,58 @@ void print_full_board() {
     printf("  a b c d e f g\n\n"); //bitboard files
 }
 
+//TODO - Complete
+void print_full_board_horizontal() {
+    string piece = "0";
+    int block = 0;
+    bool piece_found = false;
+    
+    printf("Turn %d - %s\n", TURN+1, SIDE ? "Black" : "White");
+
+    printf("*");
+    for (int rank = 0; rank < 49; rank++) {
+        printf(" %c", YSymbols[rank % 7]);
+        if (rank % 7 == 6) printf(" ");
+    }
+
+    printf("\n");
+
+    for (int file = 0; file < 7; file++) {
+        printf("%c", XSymbols[file]);
+        for (int depth = 0; depth < 7; depth++) {
+
+            for (int rank = 0; rank < 7; rank++) {
+
+                block = (depth * 49) + (rank * 7) + file;
+                piece = ".";
+                piece_found = false;
+                for (int type = 0; type < 12 && !piece_found; type++) {
+                    if (GetBit(Bitboards[type], block)) {
+                        piece = unicode_pieces[type];
+                        piece_found = true;
+                    }
+                }
+
+                if (rank == 6 && !file)
+                    printf(" %s", piece.c_str());
+                else if (!file)
+                    printf(" %s", piece.c_str());
+                else
+                    printf(" %s", piece.c_str());
+
+            }
+            printf(" ");
+        }
+        printf("\n");
+    }
+
+    for (int depth = 0; depth < 7; depth++) {
+        printf("        %c      ", ZSymbols[depth]);
+    }
+
+    printf("\n");
+}
+
 void print_fen_string() {
     string piece = "0";
     for (int block = 0; block < 343; block++) {
@@ -402,51 +450,6 @@ void print_fen_string() {
 void load_bar() {
     cout << "|" ;
     fflush(stdout);
-}
-
-/**********************************\
- ==================================
- 
-           Random numbers
- 
- ==================================
-\**********************************/
-
- // pseudo random number state
-unsigned int random_state = 1804289383;
-
-// generate 32-bit pseudo legal numbers
-unsigned int get_random_U32_number()
-{
-    // get current state
-    unsigned int number = random_state;
-    
-    // XOR shift algorithm
-    number ^= number << 13;
-    number ^= number >> 17;
-    number ^= number << 5;
-    
-    // update random number state
-    random_state = number;
-    
-    // return random number
-    return number;
-}
-
-// generate 64-bit pseudo legal numbers
-U64 get_random_U64_number()
-{
-    // define 4 random numbers
-    U64 n1, n2, n3, n4;
-    
-    // init random numbers slicing 16 bits from MS1B side
-    n1 = (U64)(get_random_U32_number()) & 0xFFFF;
-    n2 = (U64)(get_random_U32_number()) & 0xFFFF;
-    n3 = (U64)(get_random_U32_number()) & 0xFFFF;
-    n4 = (U64)(get_random_U32_number()) & 0xFFFF;
-    
-    // return random number
-    return n1 | (n2 << 16) | (n3 << 32) | (n4 << 48);
 }
 
 /**********************************\
@@ -884,7 +887,7 @@ struct SearchResult {
     }
 };
 
-#define MAX_THREADS 1 //8
+#define MAX_THREADS 8 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -2188,22 +2191,10 @@ long NODES_SEARCHED = 0; //GLOBAL
 int FINAL_DEPTH = 0;
 bool TIMEOUT_STOPPED = false; //GLOBAL
 bool ABORT_GAME = false;
-chrono::time_point<chrono::steady_clock> START_TIME;
 
 //Testing Variables - used for monitoring performance
 long long AVERAGE_SEARCH_TIME = 0; //Should get reset when the whole game ends. //GLOBAL
 long long MAX_SEARCH_TIME = 0; //GLOBAL
-
-void StartTimer() {
-    START_TIME = chrono::steady_clock::now();
-}
-
-//Returns the duration of time in microseconds passed since start time.
-inline long long GetTimePassed() {
-    auto finish = chrono::steady_clock::now();
-    auto microseconds = chrono::duration_cast<chrono::microseconds>(finish - START_TIME);
-    return microseconds.count();
-}
 
 //Returns true if the game needs to be stopped.
 inline bool StopGame(char id) {
@@ -2225,18 +2216,6 @@ void ClearTimeNodeValues() {
     TIMEOUT_STOPPED = false;
     ABORT_GAME = false;
 }
-
-string GetTimeStampString(long long timestamp) {
-    long milliseconds = (long) (timestamp / 1000) % 1000;
-    long seconds = (((long) (timestamp / 1000) - milliseconds)/1000) % 60;
-    long minutes = (((((long) (timestamp / 1000) - milliseconds)/1000) - seconds)/60) % 60;
-    return to_string(minutes) + ":" + to_string(seconds) + ":" + to_string(milliseconds);
-}
-
-/*inline int FutilityMoveCount(bool improving, int depth) {
-    return improving ? (9 + depth * depth)
-                     : (9 + depth * depth) / 2;
-}*/
 
 #define FutilityMoveCount(improving, depth) (improving ? (9 + depth * depth) : (9 + depth * depth) / 2)
 
@@ -2698,13 +2677,13 @@ void PrintEndGameMetrics() {
 }
 
 void PrintTitle() {
-    cout << "**********************************\n" <<
-            "==================================\n\n" <<
-            "\t   STARCHESS\n\n" <<
-            "==================================\n" <<
-            "**********************************\n";
-    cout << "Depth = " << DEPTH << " | QDepth = " << QDEPTH << "\n";
-    cout << "Thread Count = " << THREAD_COUNT << "\n";
+    cout << "=========================================================================================================\n" <<
+            "*********************************************************************************************************\n\n" <<
+            "\t\t\t\t\t      STARCHESS\n\n" <<
+            "=========================================================================================================\n" <<
+            "*********************************************************************************************************\n";
+    cout << "Depth = " << DEPTH << " | QDepth = " << QDEPTH << "\t";
+    cout << "Thread Count = " << THREAD_COUNT << "\t";
     cout << "Timeout = " << GetTimeStampString(TIME_LIMIT) << "\n";
 }
 
@@ -2776,7 +2755,7 @@ void SelfPlay() {
         }
 
         if (!log_only && !log_timed && !new_game) {
-            print_full_board();
+            print_full_board_horizontal();
            // print_bb(Occupancies[white]);
         }
 
@@ -3152,7 +3131,7 @@ int main() {
 
     bool play_auto = true; //0
     bool restricted_testing = false;
-    bool run_tests = true;
+    bool run_tests = false;
 
     if (restricted_testing) {
         THREAD_COUNT = 1;
@@ -3170,8 +3149,10 @@ int main() {
     }
     else if (play_auto)
     {
-       //SelfPlay();
+       SelfPlay();
     }  
+
+
 
     return 0;
 }

@@ -1,30 +1,10 @@
 #include <chrono>
 using namespace std;
 
-chrono::time_point<chrono::steady_clock> CLOCK;
-
-void StartClock() {
-    CLOCK = chrono::steady_clock::now();
-}
-
-//Returns the duration of time in microseconds passed since start time.
-inline long long GetTime() {
-    auto finish = chrono::steady_clock::now();
-    auto microseconds = chrono::duration_cast<chrono::microseconds>(finish - CLOCK);
-    return microseconds.count();
-}
-
-string GetTimeString(long long timestamp) {
-    long milliseconds = (long) (timestamp / 1000) % 1000;
-    long seconds = (((long) (timestamp / 1000) - milliseconds)/1000) % 60;
-    long minutes = (((((long) (timestamp / 1000) - milliseconds)/1000) - seconds)/60) % 60;
-    return to_string(minutes) + ":" + to_string(seconds) + ":" + to_string(milliseconds);
-}
-
 #define INT343_SIZE 343
 
 void TestSetGetPop() {
-	StartClock();
+	StartTimer();
 
 	Int343 a;
 	int test_length = 100000000;
@@ -38,13 +18,13 @@ void TestSetGetPop() {
 		IsSet(a);
 	}
 
-	long long ts = GetTime();
-	printf("TestSetGetPop|Size=%d|Time=%s\n", test_length, GetTimeString(ts).c_str());
+	long long ts = GetTimePassed();
+	printf("TestSetGetPop|Size=%d|Time=%s\n", test_length, GetTimeStampString(ts).c_str());
 
 }
 
 void TestOperators() {
-	StartClock();
+	StartTimer();
 
 	Int343 a; Int343 b; Int343 c;
 
@@ -68,12 +48,12 @@ void TestOperators() {
 		test_bool = !a;
 	}
 
-	long long ts = GetTime();
-	printf("TestOperators|Size=%d|Time=%s\n", test_length, GetTimeString(ts).c_str());
+	long long ts = GetTimePassed();
+	printf("TestOperators|Size=%d|Time=%s\n", test_length, GetTimeStampString(ts).c_str());
 }
 
 void TestLeftRightShifts() {
-	StartClock();
+	StartTimer();
 
 	int test_length = 100000000;
 	Int343 a; Int343 b;
@@ -84,12 +64,12 @@ void TestLeftRightShifts() {
 		b = a >> i % INT343_SIZE;
 	}
 
-	long long ts = GetTime();
-	printf("TestLeftRightShifts|Size=%d|Time=%s\n", test_length, GetTimeString(ts).c_str());
+	long long ts = GetTimePassed();
+	printf("TestLeftRightShifts|Size=%d|Time=%s\n", test_length, GetTimeStampString(ts).c_str());
 }
 
 void TestBitScanMethods() {
-	StartClock();
+	StartTimer();
 
 	Int343 bb; Int343 copy;
 
@@ -119,12 +99,12 @@ void TestBitScanMethods() {
 		}
 	}
 
-	long long ts = GetTime();
-	printf("TestBitScanMethods|Size=%d|Time=%s\n", test_length, GetTimeString(ts).c_str());
+	long long ts = GetTimePassed();
+	printf("TestBitScanMethods|Size=%d|Time=%s\n", test_length, GetTimeStampString(ts).c_str());
 }
 
 void TestForwardScanPop() {
-	StartClock();
+	StartTimer();
 
 	int test_length = 10000000;
 	int index = 0;
@@ -144,12 +124,12 @@ void TestForwardScanPop() {
 		bb = copy; //reset bb
 	}
 
-	long long ts = GetTime();
-	printf("TestForwardScanPop|Size=%d|Time=%s\n", test_length, GetTimeString(ts).c_str());
+	long long ts = GetTimePassed();
+	printf("TestForwardScanPop|Size=%d|Time=%s\n", test_length, GetTimeStampString(ts).c_str());
 }
 
 void TestGetFirstBit() {
-	StartClock();
+	StartTimer();
 
 	Int343 bb;
 	int test_length = 100000000;
@@ -159,7 +139,7 @@ void TestGetFirstBit() {
 		GetFirstBit(bb); //Need to confirm this value 
 	}
 
-	long long ts = GetTime();
-	printf("TestGetFirstBit|Size=%d|Time=%s\n", test_length, GetTimeString(ts).c_str());
+	long long ts = GetTimePassed();
+	printf("TestGetFirstBit|Size=%d|Time=%s\n", test_length, GetTimeStampString(ts).c_str());
 }
 
