@@ -17,21 +17,21 @@ using namespace std;
 
 //NOTE: GLOBAL = values that must be cleared or changed with a new turn or a new game.
 
-#define START_POSITION  "0000000" \
-                        "0cdodc0" \
-                        "0dioid0" \
-                        "0oosoo0" \
-                        "0dioid0" \
-                        "0cdodc0" \
-                        "0000000" \
+#define START_POSITION  "000o000" \
+                        "00dod00" \
+                        "0dcicd0" \
+                        "ooisioo" \
+                        "0dcicd0" \
+                        "00dod00" \
+                        "000o000" \
                                   \
-                        "0000000" \
+                        "000t000" \
+                        "00ttt00" \
                         "0ttttt0" \
+                        "ttttttt" \
                         "0ttttt0" \
-                        "0ttttt0" \
-                        "0ttttt0" \
-                        "0ttttt0" \
-                        "0000000" \
+                        "00ttt00" \
+                        "000t000" \
                                   \
                         "0000000" \
                         "0000000" \
@@ -57,21 +57,21 @@ using namespace std;
                         "0000000" \
                         "0000000" \
                                   \
-                        "0000000" \
+                        "000T000" \
+                        "00TTT00" \
                         "0TTTTT0" \
+                        "TTTTTTT" \
                         "0TTTTT0" \
-                        "0TTTTT0" \
-                        "0TTTTT0" \
-                        "0TTTTT0" \
-                        "0000000" \
+                        "00TTT00" \
+                        "000T000" \
                                   \
-                        "0000000" \
-                        "0CDODC0" \
-                        "0DIOID0" \
-                        "0OOSOO0" \
-                        "0DIOID0" \
-                        "0CDODC0" \
-                        "0000000 w"
+                        "000O000" \
+                        "00DOD00" \
+                        "0DCICD0" \
+                        "OOISIOO" \
+                        "0DCICD0" \
+                        "00DOD00" \
+                        "000O000 w"
 
 // unicode pieces
 char *unicode_pieces[12] = {(char *)"♙", (char *)"♘", (char *)"♗", (char *)"♖", (char *)"♕", (char *)"♔",
@@ -887,7 +887,7 @@ struct SearchResult {
     }
 };
 
-#define MAX_THREADS 8 //8
+#define MAX_THREADS 10 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -925,12 +925,13 @@ Global globals[MAX_THREADS]; //GLOBAL
 //00001000000000000000000000000000
 #define get_move_side(move) ((move & 0x8000000) >> 27)
 
-
-#define GetValidTetraMoves(id, side, block) ((tetra_attacks[side][block] & globals[id].occupancies[!side]) | (tetra_moves[side][block] ^ (tetra_moves[side][block] & globals[id].occupancies[both])))
+#define GetTetraDoubleMoves(side, block) ((side == black && block < 97) ? (tetra_moves[side][block+49]) : ((side == white && block >= 245) ? (tetra_moves[side][block-49]) : (tetra_moves[side][block])))
+#define GetValidTetraMoves(id, side, block) ((tetra_attacks[side][block] & globals[id].occupancies[!side]) | (tetra_moves[side][block] | GetTetraDoubleMoves(side, block)) ^ ((tetra_moves[side][block] | GetTetraDoubleMoves(side, block)) & globals[id].occupancies[both]))
 #define GetValidDodecaMoves(id, side, block) (dodeca_attacks[block] ^ (dodeca_attacks[block] & globals[id].occupancies[side]))
 #define GetValidSphereMoves(id, side, block) (sphere_attacks[block] ^ (sphere_attacks[block] & globals[id].occupancies[side]))
 #define EncodeNullMove(side) (encode_move(0, 0, 0, 0, 0, side))
 #define IsNullMove(move) ((move << 5) == 0)
+
 /*
 * Process:
 * 1.) attacks = octa/cube edges if they exist
@@ -1101,8 +1102,6 @@ static inline void HandlePVMove(char id, int ply, long move) {
  
  ==================================
 \**********************************/
-//#define HASH_ALPHA 60000
-//#define HASH_BETA 70000
  enum {HASH_ALPHA, HASH_BETA, HASH_EXACT};
 #define NO_HASH 80000
 
@@ -1216,8 +1215,6 @@ static inline void WriteToHashTable(U64 hash_key, int ply_depth, int score, int 
  
  ==================================
 \**********************************/
-//const int material_score[12] = { 100, 320, 325, 500, 975, 32767, -100, -320, -325, -500, -975, -32767};
-//const int material_score[12] = { 100, 305, 350, 548, 994, 32767, -100, -305, -350, -548, -994, -32767};
 const int material_score[12] = { 100, 320, 325, 500, 1000, 32767, -100, -320, -325, -500, -1000, -32767};
 
 //Positional score board
@@ -1231,43 +1228,43 @@ const int position_scores[6][343] =
     90,  90,  90,  90,  90,  90,  90,
     90,  90,  90,  90,  90,  90,  90,
 
+    30,  30,  30,  40,  30,  30,  30,
+    30,  30,  40,  40,  40,  30,  30,
+    30,  40,  50,  50,  50,  40,  30,
+    40,  40,  50,  50,  50,  40,  40,
+    30,  40,  50,  50,  50,  40,  30,
+    30,  30,  40,  40,  40,  30,  30,
+    30,  30,  30,  40,  30,  30,  30,
+
+    20,  20,  20,  30,  20,  20,  20,
+    20,  20,  30,  30,  30,  20,  20,
+    20,  30,  30,  30,  30,  30,  20,
     30,  30,  30,  30,  30,  30,  30,
-    30,  40,  40,  40,  40,  40,  30,
-    30,  40,  50,  50,  50,  40,  30,
-    30,  40,  50,  50,  50,  40,  30,
-    30,  40,  50,  50,  50,  40,  30,
-    30,  40,  40,  40,  40,  40,  30,
-    30,  40,  40,  40,  40,  40,  30,
+    20,  30,  30,  30,  30,  30,  20,
+    20,  20,  30,  30,  30,  20,  20,
+    20,  20,  20,  30,  20,  20,  20,
 
+    10,  10,  10,  20,  10,  10,  10,
+    10,  10,  20,  20,  20,  10,  10,
+    10,  20,  20,  20,  20,  20,  10,
     20,  20,  20,  20,  20,  20,  20,
-    20,  30,  30,  30,  30,  30,  20,
-    20,  30,  30,  30,  30,  30,  20,
-    20,  30,  30,  30,  30,  30,  20,
-    20,  30,  30,  30,  30,  30,  20,
-    20,  30,  30,  30,  30,  30,  20,
-    20,  20,  20,  20,  20,  20,  20,
+    10,  20,  20,  20,  20,  20,  10,
+    10,  10,  20,  20,  20,  10,  10,
+    10,  10,  10,  20,  10,  10,  10,
 
-    10,  10,  10,  10,  10,  10,  10,
-    10,  20,  20,  20,  20,  20,  10,
-    10,  20,  20,  20,  20,  20,  10,
-    10,  20,  20,  20,  20,  20,  10,
-    10,  20,  20,  20,  20,  20,  10,
-    10,  20,  20,  20,  20,  20,  10,
-    10,  10,  10,  10,  10,  10,  10,
-
-    10,  10,  10,  10,  10,  10,  10,
+    10,  10,  10,  15,  10,  10,  10,
+    10,  10,  15,  15,  15,  10,  10,
     10,  15,  15,  15,  15,  15,  10,
+    15,  15,  15,  15,  15,  15,  15,
     10,  15,  15,  15,  15,  15,  10,
-    10,  15,  15,  15,  15,  15,  10,
-    10,  15,  15,  15,  15,  15,  10,
-    10,  15,  15,  15,  15,  15,  10,
-    10,  10,  10,  10,  10,  10,  10,
+    10,  10,  15,  15,  15,  10,  10,
+    10,  10,  10,  15,  10,  10,  10,
 
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
-     0,   0, -10,   0, -10,   0,   0,
      0,   0,   0, -10,   0,   0,   0,
      0,   0, -10,   0, -10,   0,   0,
+     0,   0,   0, -10,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
 
@@ -1375,13 +1372,13 @@ const int position_scores[6][343] =
      0,   5,   5,   5,   5,   5,   0,
      0,   0,   0,   0,   0,   0,   0,
 
-     0,   0,   0,  10,   0,   0,   0,
-     0,   0,   0,  10,   0,   0,   0,
-     0,  10,  10,   0,  10,  10,   0,
-     10,   0,   0,   0,   0,   0,  10,
-     0,  10,  10,   0,  10,  10,   0,
-     0,   0,   0,  10,   0,   0,   0,
-     0,   0,   0,  10,   0,   0,   0,
+     0,   0,   5,   5,   5,   0,   0,
+     0,   0,  10,  10,  10,   0,   0,
+     5,  10,   0,  10,   0,  10,   5,
+     5,  10,  10,   0,  10,  10,   5,
+     5,  10,   0,  10,   0,  10,   5,
+     0,   0,  10,  10,  10,   0,   0,
+     0,   0,   5,   5,   5,   0,   0,
 
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
@@ -1439,13 +1436,13 @@ const int position_scores[6][343] =
      0,  10,  10,  10,  10,  10,   0,
      0,   0,   0,   0,   0,   0,   0,
 
-     0,   5,   0,   0,   0,   5,   0,
-     5,  -5,   0,   0,   0,  -5,   5,
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
+     0,   0,  -5,   0,  -5,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
-     5,  -5,   0,   0,   0,  -5,   5,
-     0,   5,   0,   0,   0,   5,   0,
+     0,   0,  -5,   0,  -5,   0,   0,
+     0,   0,   0,   0,   0,   0,   0,
+     0,   0,   0,   0,   0,   0,   0,
 }, { // Icosa Position Scores
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
@@ -1553,12 +1550,13 @@ const int position_scores[6][343] =
 
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
+     0,   0,   0, -15,   0,   0,   0,
      0,   0, -15,   0, -15,   0,   0,
-     0,   0,   0,   0,   0,   0,   0,
-     0,   0, -15,   0, -15,   0,   0,
+     0,   0,   0, -15,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0,
      0,   0,   0,   0,   0,   0,   0
 }};
+
 // mirror positional score tables for opposite side
 const int mirror_score[343] =
 {
@@ -2188,7 +2186,6 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
 long long TIME_LIMIT = MAX_TIME_LIMIT;
 
 long NODES_SEARCHED = 0; //GLOBAL
-int FINAL_DEPTH = 0;
 bool TIMEOUT_STOPPED = false; //GLOBAL
 bool ABORT_GAME = false;
 
@@ -2212,7 +2209,6 @@ inline bool StopGame(char id) {
 
 void ClearTimeNodeValues() {
     NODES_SEARCHED = 0;
-    FINAL_DEPTH = 0;
     TIMEOUT_STOPPED = false;
     ABORT_GAME = false;
 }
@@ -2592,7 +2588,6 @@ static inline SearchResult FindBestMove(char side) {
     //Get the best move in all the threads
     for (int id = 0; id < THREAD_COUNT; id++) {
         NODES_SEARCHED += globals[id].nodes_searched;
-
         if (globals[id].search_result.flag != NO_MOVE) {
             if (best_result.flag == NO_MOVE ||
                 globals[id].search_result.flag != FOUND_MOVE ||
@@ -2600,9 +2595,6 @@ static inline SearchResult FindBestMove(char side) {
                 best_result = globals[id].search_result;
             }
         }
-
-        if (globals[id].total_depth > FINAL_DEPTH)
-            FINAL_DEPTH = globals[id].total_depth;
     }
 
     return best_result;
@@ -2756,7 +2748,6 @@ void SelfPlay() {
 
         if (!log_only && !log_timed && !new_game) {
             print_full_board_horizontal();
-           // print_bb(Occupancies[white]);
         }
 
         response = "";
@@ -2832,10 +2823,10 @@ void SelfPlay() {
         else {
             //Print out testing/logging info
             if (!log_only && !log_timed) printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
-            printf("[Turn=%d|MaxDepth=%d|MaxQDepth=%d|FinalDepth=%d|SearchDepth=%d|%s|Type=%c|Source=%d|Target=%d|Capture=%c|Score=%d|Thread=%d|PiecesLeft=%d|NodesSearched=%ld|Time=%s]%s\n",
-                    TURN, DEPTH, QDEPTH, FINAL_DEPTH, search_result.search_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, 
+            printf("[%d|MaxD=%d|MaxQD=%d|SrchD=%d|%s|Type=%c|Src=%d|Trg=%d|Cap=%c|Score=%d|Thd=%d|PceCnt=%d|Nodes=%ld|Time=%s]\n",
+                    TURN, DEPTH, QDEPTH, search_result.search_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, 
                     (IsCapture(capture)) ? ascii_pieces[capture] : 'X', search_result.final_score, search_result.thread_id, 
-                    Count(Occupancies[both]), NODES_SEARCHED, GetTimeStampString(search_time).c_str(), (TIMEOUT_STOPPED) ? " >> TIMEOUT" : "");
+                    Count(Occupancies[both]), NODES_SEARCHED, GetTimeStampString(search_time).c_str());
 
             //Make the move just searched, if not a checkmate/stalemate
             MakeRealMove({search_result.final_hash_key, search_result.final_move}); 
@@ -3129,14 +3120,14 @@ extern "C"
 */
 int main() {
 
-    bool play_auto = true; //0
+    bool play_auto = true;
     bool restricted_testing = false;
     bool run_tests = false;
 
     if (restricted_testing) {
         THREAD_COUNT = 1;
         DEPTH = 8;
-        TIME_LIMIT = 30000000; //30 Seconds
+        TIME_LIMIT = 60000000; //30 Seconds
     }
 
     if (run_tests) {
