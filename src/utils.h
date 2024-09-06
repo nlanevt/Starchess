@@ -93,3 +93,6 @@ string ToStringU128(U128 num) {
 }
 
 #define MaxValue(a, b) (a >= b ? a : b)
+
+#define tti(side, type) (((side) * 6) + type) //Type to Index conversion, for accessing Bitboards
+

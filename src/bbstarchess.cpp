@@ -196,6 +196,27 @@ enum {
     G7a, G7b, G7c, G7d, G7e, G7f, G7g
 };
 
+inline string asciiToString(char type) {
+    type = type % 6;
+    switch (type) {
+        case T:
+            return "Tetra";
+        case D:
+            return "Dodeca";
+        case O:
+            return "Octa";
+        case C:
+            return "Cube";
+        case I:
+            return "Icosa";
+        case S:
+            return "Sphere";
+    }
+
+    return "";
+
+}
+
 /**********************************\
  ==================================
  
@@ -887,7 +908,7 @@ struct SearchResult {
     }
 };
 
-#define MAX_THREADS 10 //8
+#define MAX_THREADS 8 //8
 size_t THREAD_COUNT = MAX_THREADS;
 
 Global globals[MAX_THREADS]; //GLOBAL
@@ -997,7 +1018,7 @@ inline Int343 GetCubeMoves(Int343 occ, int block) {
 #define GetSphereCaptures(id, side, block) (sphere_attacks[block] & globals[id].occupancies[!side])
 
 inline Int343 GetPossibleTetraMoves(char side, int block) {
-    return tetra_attacks[side][block] | tetra_moves[side][block];
+    return tetra_attacks[side][block] | tetra_moves[side][block] | GetTetraDoubleMoves(side, block);
 }
 
 inline Int343 GetPossibleDodecaMoves(int block) {
@@ -1024,17 +1045,17 @@ inline Int343 GetPossibleCubeMoves(int block) {
 #define IsCapture(capture) (capture != NO_CAPTURE)
 
 static inline int GetCapture(char id, char side, int target) {
-    if (GetBit(globals[id].bitboards[((!side)*6) + T], target))
+    if (GetBit(globals[id].bitboards[tti(!side, T)], target))
         return T;
-    else if (GetBit(globals[id].bitboards[((!side)*6) + D], target))
+    else if (GetBit(globals[id].bitboards[tti(!side, D)], target))
         return D;
-    else if (GetBit(globals[id].bitboards[((!side)*6) + O], target))
+    else if (GetBit(globals[id].bitboards[tti(!side, O)], target))
         return O;
-    else if (GetBit(globals[id].bitboards[((!side)*6) + C], target))
+    else if (GetBit(globals[id].bitboards[tti(!side, C)], target))
         return C;
-    else if (GetBit(globals[id].bitboards[((!side)*6) + I], target))
+    else if (GetBit(globals[id].bitboards[tti(!side, I)], target))
         return I;
-    else if (GetBit(globals[id].bitboards[((!side)*6) + S], target))
+    else if (GetBit(globals[id].bitboards[tti(!side, S)], target))
         return S;
 
     return NO_CAPTURE;
@@ -1156,13 +1177,13 @@ static inline U64 MakeTTKey(U64 initial_key, long move) {
     U64 trans_key = initial_key ^ side;
     if (IsNullMove(move)) return trans_key;
 
-    char exact_type = (side * 6) + get_move_piece(move);
+    char exact_type = tti(side, get_move_piece(move));
     char capture = get_move_capture(move);
     int source = get_move_source(move);
     int target = get_move_target(move);
 
     trans_key = trans_key ^ (piece_keys[exact_type][source]) ^ (piece_keys[exact_type][target]);
-    return (IsCapture(capture)) ? trans_key ^ (piece_keys[(side * 6) + capture][target]) : trans_key;
+    return (IsCapture(capture)) ? trans_key ^ (piece_keys[tti(side, capture)][target]) : trans_key;
 }
 
 static inline TTEntry* GetTTEntry(U64 key) {
@@ -1217,6 +1238,7 @@ static inline void WriteToHashTable(U64 hash_key, int ply_depth, int score, int 
 \**********************************/
 const int material_score[12] = { 100, 320, 325, 500, 1000, 32767, -100, -320, -325, -500, -1000, -32767};
 
+//Positional score board
 //Positional score board
 const int position_scores[6][343] =
 {{  // Tetra position scores
@@ -1638,12 +1660,12 @@ static int mvv_lva[12][12] = {
 //Alters the threaded bitboards
 inline void MakeKnownMove(char id, char side, int attacker, char capture, char promotion, int source, int target) {
     if (!promotion) {
-        PopBit(globals[id].bitboards[(side*6) + attacker], source);
-        SetBit(globals[id].bitboards[(side*6) + attacker], target);
+        PopBit(globals[id].bitboards[tti(side, attacker)], source);
+        SetBit(globals[id].bitboards[tti(side, attacker)], target);
     }
     else {
-        PopBit(globals[id].bitboards[(side*6) + T], source); //Remove tetra from side at source
-        SetBit(globals[id].bitboards[(side*6) + I], target); //Add icosa to side at target
+        PopBit(globals[id].bitboards[tti(side, T)], source); //Remove tetra from side at source
+        SetBit(globals[id].bitboards[tti(side, I)], target); //Add icosa to side at target
     }
     
     PopBit(globals[id].occupancies[side], source);
@@ -1652,48 +1674,48 @@ inline void MakeKnownMove(char id, char side, int attacker, char capture, char p
     SetBit(globals[id].occupancies[both], target);
 
     if (IsCapture(capture)) {
-        PopBit(globals[id].bitboards[((!side)*6) + capture], target);
+        PopBit(globals[id].bitboards[tti(!side, capture)], target);
         PopBit(globals[id].occupancies[!side], target);
     }
 }
 
 //Used for SEE and other applications where capture is guaranteed
 inline void MakeCapture(char id, char side, int attacker, char capture, int source, int target) {
-    PopBit(globals[id].bitboards[(side*6) + attacker], source);
-    SetBit(globals[id].bitboards[(side*6) + attacker], target);
+    PopBit(globals[id].bitboards[tti(side, attacker)], source);
+    SetBit(globals[id].bitboards[tti(side, attacker)], target);
 
     PopBit(globals[id].occupancies[side], source);
     SetBit(globals[id].occupancies[side], target);
     PopBit(globals[id].occupancies[both], source);
     SetBit(globals[id].occupancies[both], target);
 
-    PopBit(globals[id].bitboards[((!side)*6) + capture], target);
+    PopBit(globals[id].bitboards[tti(!side, capture)], target);
     PopBit(globals[id].occupancies[!side], target);
 }
 
 //Used for reversing a SEE known capture
 inline void ReverseCapture(char id, char side, int attacker, char capture, int source, int target) {
-    PopBit(globals[id].bitboards[(side*6) + attacker], target);
-    SetBit(globals[id].bitboards[(side*6) + attacker], source);
+    PopBit(globals[id].bitboards[tti(side, attacker)], target);
+    SetBit(globals[id].bitboards[tti(side, attacker)], source);
     
     PopBit(globals[id].occupancies[side], target);
     SetBit(globals[id].occupancies[side], source);
     PopBit(globals[id].occupancies[both], target);
     SetBit(globals[id].occupancies[both], source);
 
-    SetBit(globals[id].bitboards[((!side)*6) + capture], target);
+    SetBit(globals[id].bitboards[tti(!side, capture)], target);
     SetBit(globals[id].occupancies[!side], target);
     SetBit(globals[id].occupancies[both], target);
 }
 
 inline void ReverseMove(char id, char side, int attacker, char capture, char promotion, int source, int target) {
     if (!promotion) {
-        PopBit(globals[id].bitboards[(side*6) + attacker], target);
-        SetBit(globals[id].bitboards[(side*6) + attacker], source);
+        PopBit(globals[id].bitboards[tti(side, attacker)], target);
+        SetBit(globals[id].bitboards[tti(side, attacker)], source);
     }
     else {
-        PopBit(globals[id].bitboards[(side*6) + I], target); //Remove icosa from target
-        SetBit(globals[id].bitboards[(side*6) + T], source); //Add tetra to source
+        PopBit(globals[id].bitboards[tti(side, I)], target); //Remove icosa from target
+        SetBit(globals[id].bitboards[tti(side, T)], source); //Add tetra to source
     }
     
     PopBit(globals[id].occupancies[side], target);
@@ -1701,7 +1723,7 @@ inline void ReverseMove(char id, char side, int attacker, char capture, char pro
     PopBit(globals[id].occupancies[both], target);
     SetBit(globals[id].occupancies[both], source);
     if (IsCapture(capture)) {
-        SetBit(globals[id].bitboards[((!side)*6) + capture], target);
+        SetBit(globals[id].bitboards[tti(!side, capture)], target);
         SetBit(globals[id].occupancies[!side], target);
         SetBit(globals[id].occupancies[both], target);
     }
@@ -1911,9 +1933,9 @@ static inline int ScoreMove(char id, int list_index, long move, char side, char 
             return 7000;
         }
         else {
-            //return globals[id].history_moves[(side * 6) + type][target]; //This is possibly buggy
-            if (globals[id].history_moves[(side * 6) + type][target] > 0) {
-                return 1000 + (globals[id].history_moves[(side * 6) + type][target] / 100);
+            //return globals[id].history_moves[tti(side, type)][target]; //This is possibly buggy
+            if (globals[id].history_moves[tti(side, type)][target] > 0) {
+                return 1000 + (globals[id].history_moves[tti(side, type)][target] / 100);
             }
             else
                 return 0;
@@ -2029,7 +2051,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
     long move;
     
     //Tetras
-    piece_set = globals[id].bitboards[(side * 6) + T];
+    piece_set = globals[id].bitboards[tti(side, T)];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetValidTetraMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
@@ -2041,7 +2063,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
     }
 
     //Dodecas
-    piece_set = globals[id].bitboards[(side * 6) + D];
+    piece_set = globals[id].bitboards[tti(side, D)];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetValidDodecaMoves(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
@@ -2053,7 +2075,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
     }
 
     //Octas
-    piece_set = globals[id].bitboards[(side * 6) + O];
+    piece_set = globals[id].bitboards[tti(side, O)];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetOctaMoves(id, source);
         moves ^= (moves & globals[id].occupancies[side]);
@@ -2066,7 +2088,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
     }
 
     //Cubes
-    piece_set = globals[id].bitboards[(side * 6) + C];
+    piece_set = globals[id].bitboards[tti(side, C)];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetCubeMoves(id, source);
         moves ^= (moves & globals[id].occupancies[side]);
@@ -2079,7 +2101,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
     }
 
     //Icosas
-    piece_set = globals[id].bitboards[(side * 6) + I];
+    piece_set = globals[id].bitboards[tti(side, I)];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetOctaMoves(id, source) | GetCubeMoves(id, source);
         moves ^= (moves & globals[id].occupancies[side]);
@@ -2092,7 +2114,7 @@ static inline void GenerateMoves(char id, int list_index, char side) {
     }
 
     //Sphere
-    source = BitScan(side, globals[id].bitboards[(side * 6) + S]);
+    source = BitScan(side, globals[id].bitboards[tti(side, S)]);
     moves = GetValidSphereMoves(id, side, source);
     while ((target = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, target);
@@ -2108,7 +2130,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
     Int343 piece_set; Int343 moves;
 
     //Tetras
-    piece_set = globals[id].bitboards[(side * 6) + T];
+    piece_set = globals[id].bitboards[tti(side, T)];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetTetraCaptures(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
@@ -2119,7 +2141,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
     }
 
     //Dodecas
-    piece_set = globals[id].bitboards[(side * 6) + D];
+    piece_set = globals[id].bitboards[tti(side, D)];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetDodecaCaptures(id, side, source);
         while ((target = ForwardScanPop(&moves)) >= 0) {
@@ -2130,7 +2152,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
     }
 
     //Octas
-    piece_set = globals[id].bitboards[(side * 6) + O];
+    piece_set = globals[id].bitboards[tti(side, O)];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetOctaMoves(id, source) & globals[id].occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
@@ -2141,7 +2163,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
     }
 
     //Cubes
-    piece_set = globals[id].bitboards[(side * 6) + C];
+    piece_set = globals[id].bitboards[tti(side, C)];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = GetCubeMoves(id, source) & globals[id].occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
@@ -2152,7 +2174,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
     }
 
     //Icosas
-    piece_set = globals[id].bitboards[(side * 6) + I];
+    piece_set = globals[id].bitboards[tti(side, I)];
     while((source = ForwardScanPop(&piece_set)) >= 0) {
         moves = (GetOctaMoves(id, source) | GetCubeMoves(id, source)) & globals[id].occupancies[!side];
         while ((target = ForwardScanPop(&moves)) >= 0) {
@@ -2163,7 +2185,7 @@ static inline void GenerateCaptures(char id, int list_index, char side) {
     }
 
     //Sphere
-    source = BitScan(side, globals[id].bitboards[(side * 6) + S]);
+    source = BitScan(side, globals[id].bitboards[tti(side, S)]);
     moves = GetSphereCaptures(id, side, source);
     while ((target = ForwardScanPop(&moves)) >= 0) {
         capture = GetCapture(id, side, target);
@@ -2440,7 +2462,7 @@ static inline int SubSearch(const char id, const int ply_depth, const int list_i
                 if (!IsCapture(capture)) {
                     globals[id].killer_moves[1][list_index] = globals[id].killer_moves[0][list_index];
                     globals[id].killer_moves[0][list_index] = move;
-                    globals[id].history_moves[(side * 6) + type][target] += ply_depth * ply_depth;
+                    globals[id].history_moves[tti(side, type)][target] += ply_depth * ply_depth;
                 }
 
                 globals[id].mstack[list_index].Clear();
@@ -2701,12 +2723,12 @@ inline void MakeRealMove(Turn turn) {
     int target = get_move_target(turn.move);
 
     if (attacker != T || !IsPromotion(side, target)) {
-        PopBit(Bitboards[(side*6) + attacker], source);
-        SetBit(Bitboards[(side*6) + attacker], target);
+        PopBit(Bitboards[tti(side, attacker)], source);
+        SetBit(Bitboards[tti(side, attacker)], target);
     }
     else {
-        PopBit(Bitboards[(side*6) + T], source); //Remove tetra from side at source
-        SetBit(Bitboards[(side*6) + I], target); //Add icosa to side at target
+        PopBit(Bitboards[tti(side, T)], source); //Remove tetra from side at source
+        SetBit(Bitboards[tti(side, I)], target); //Add icosa to side at target
     }
     
     PopBit(Occupancies[side], source);
@@ -2715,7 +2737,7 @@ inline void MakeRealMove(Turn turn) {
     SetBit(Occupancies[both], target);
 
     if (IsCapture(capture)) {
-        PopBit(Bitboards[((!side)*6) + capture], target);
+        PopBit(Bitboards[tti(!side, capture)], target);
         PopBit(Occupancies[!side], target);
     }
 
@@ -2822,9 +2844,10 @@ void SelfPlay() {
         }
         else {
             //Print out testing/logging info
-            if (!log_only && !log_timed) printf(">> %s %c %d to %d\n", (SIDE) ? "BLACK" : "WHITE", ascii_pieces[type], source, target);
-            printf("[%d|MaxD=%d|MaxQD=%d|SrchD=%d|%s|Type=%c|Src=%d|Trg=%d|Cap=%c|Score=%d|Thd=%d|PceCnt=%d|Nodes=%ld|Time=%s]\n",
-                    TURN, DEPTH, QDEPTH, search_result.search_depth, (side) ? "BLACK" : "WHITE", ascii_pieces[type], source, target, 
+            if (!log_only && !log_timed) printf(">> %s %s %d to %d\n", (SIDE) ? "BLACK" : "WHITE", asciiToString(type).c_str(), source, target);
+
+            printf("[%d|SrchD=%d|%s|Type=%c|Src=%d|Trg=%d|Cap=%c|Score=%d|Thd=%d|PceCnt=%d|Nodes=%ld|Time=%s]\n",
+                    TURN, search_result.search_depth, (side) ? "B" : "W", ascii_pieces[type], source, target, 
                     (IsCapture(capture)) ? ascii_pieces[capture] : 'X', search_result.final_score, search_result.thread_id, 
                     Count(Occupancies[both]), NODES_SEARCHED, GetTimeStampString(search_time).c_str());
 
@@ -2939,7 +2962,7 @@ extern "C"
     }
 
     DllExport int CountPieces(int side, int type) {
-        return Count(Bitboards[(side * 6) + type]);
+        return Count(Bitboards[tti(side, type)]);
     }
 
     DllExport int GetMaxDepth() {
@@ -2974,7 +2997,7 @@ extern "C"
 
     DllExport U64 GetBitboard(int side, int type, int index) {
         if (index >= 6 || type >= 6) return 0ULL;
-        return GetBitsU64(Bitboards[(side * 6) + type], index);
+        return GetBitsU64(Bitboards[tti(side, type)], index);
     }
 
     DllExport U64 GetOccupancies(int side, int index) {
@@ -3000,7 +3023,7 @@ extern "C"
         int source; int total = 0;
 
         for (int type = T; type <= S; type++) {
-            piece_set = globals[0].bitboards[(side * 6) + type];
+            piece_set = globals[0].bitboards[tti(side, type)];
             while((source = ForwardScanPop(&piece_set)) >= 0) {
                 total += Count(get_legal_moves(type, side, source));
             }

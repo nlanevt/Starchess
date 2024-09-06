@@ -219,3 +219,4 @@ static inline Int343 GetFirstBit(Int343 bitboard) {
 }
 
 #define BitScan(side, bitboard) (side == white ? BitScanReverse(bitboard) : BitScanForward(bitboard))
+
