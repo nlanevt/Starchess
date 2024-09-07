@@ -73,6 +73,176 @@ string GetTimeStampString(long long timestamp) {
     return to_string(minutes) + ":" + to_string(seconds) + ":" + to_string(milliseconds);
 }
 
+/**********************************\
+ ==================================
+ 
+           Input & Output
+ 
+ ==================================
+\**********************************/
+
+void print_bb(Int343 bitboard) {
+    printf("\n");
+
+    for (int depth = 6; depth >= 0; depth--) {
+        printf("%c", ZSymbols[depth]);
+
+        for (int rank = 6; rank >= 0; rank--) {
+
+            for (int file = 0; file < 7; file++) {
+
+                int block = (depth * 49) + (rank * 7) + file;
+
+                
+                if (rank == 6 && !file)
+                    printf(" %d", GetBit(bitboard, block) ? 1 : 0);
+                else if (!file)
+                    printf("  %d", GetBit(bitboard, block) ? 1 : 0);
+                else
+                    printf(" %d", GetBit(bitboard, block) ? 1 : 0);
+
+                if (file == 6)
+                    printf("  %d ", rank + 1);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+
+    printf("  a b c d e f g\n\n"); //bitboard files
+
+    // print bitboard as unsigned decimal number
+    printf("  Bitboard: ");
+    bitboard.Print();
+
+}
+
+void print_board_enums() {
+    printf("\n");
+    for (int depth = 0; depth < 7; depth++) {
+        for (int rank = 0; rank < 7; rank++) {
+            for (int file = 0; file < 7; file++) {
+                printf("%c%d%c, ", ZSymbols[depth], rank + 1, XSymbols[file]);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+}
+
+void print_full_board_vertical(const int turn, const int side, const Int343 * Bitboards) {
+    string piece = "0";
+    int block = 0;
+    bool piece_found = false;
+    
+    printf("Turn %d - %s\n", turn, side ? "Black" : "White");
+    for (int depth = 6; depth >= 0; depth--) {
+        printf("%c", ZSymbols[depth]);
+
+        for (int rank = 6; rank >= 0; rank--) {
+
+            for (int file = 0; file < 7; file++) {
+
+                block = (depth * 49) + (rank * 7) + file;
+                piece = ".";
+                piece_found = false;
+                for (int type = 0; type < 12 && !piece_found; type++) {
+                    if (GetBit(Bitboards[type], block)) {
+                        piece = unicode_pieces[type];
+                        piece_found = true;
+                    }
+                }
+
+                if (rank == 6 && !file)
+                    printf(" %s", piece.c_str());
+                else if (!file)
+                    printf("  %s", piece.c_str());
+                else
+                    printf(" %s", piece.c_str());
+
+                if (file == 6)
+                    printf("  %d ", rank + 1);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+
+    printf("  a b c d e f g\n\n"); //bitboard files
+}
+
+//TODO - Complete
+void print_full_board_horizontal(const int turn, const int side, const Int343 * Bitboards) {
+    string piece = "0";
+    int block = 0;
+    bool piece_found = false;
+    
+    printf("Turn %d - %s\n", turn, side ? "Black" : "White");
+
+    printf("*");
+    for (int rank = 0; rank < 49; rank++) {
+        printf(" %c", YSymbols[rank % 7]);
+        if (rank % 7 == 6) printf(" ");
+    }
+
+    printf("\n");
+
+    for (int file = 0; file < 7; file++) {
+        printf("%c", XSymbols[file]);
+        for (int depth = 0; depth < 7; depth++) {
+
+            for (int rank = 0; rank < 7; rank++) {
+
+                block = (depth * 49) + (rank * 7) + file;
+                piece = ".";
+                piece_found = false;
+                for (int type = 0; type < 12 && !piece_found; type++) {
+                    if (GetBit(Bitboards[type], block)) {
+                        piece = unicode_pieces[type];
+                        piece_found = true;
+                    }
+                }
+
+                if (rank == 6 && !file)
+                    printf(" %s", piece.c_str());
+                else if (!file)
+                    printf(" %s", piece.c_str());
+                else
+                    printf(" %s", piece.c_str());
+
+            }
+            printf(" ");
+        }
+        printf("\n");
+    }
+
+    for (int depth = 0; depth < 7; depth++) {
+        printf("        %c      ", ZSymbols[depth]);
+    }
+
+    printf("\n");
+}
+
+void print_fen_string(const int side, const Int343 * Bitboards) {
+    string piece = "0";
+    for (int block = 0; block < 343; block++) {
+        piece = "0";
+        for (int type = 0; type < 12 && piece == "0"; type++) {
+            if (GetBit(Bitboards[type], block)) {
+                piece = ascii_pieces[type];
+            }
+        }
+
+        printf("%s", piece.c_str());
+    }
+
+    printf(" %c", (side) ? 'b' : 'w');
+}
+
+void load_bar() {
+    cout << "|" ;
+    fflush(stdout);
+}
 
 /**********************************\
  ==================================
@@ -95,4 +265,26 @@ string ToStringU128(U128 num) {
 #define MaxValue(a, b) (a >= b ? a : b)
 
 #define tti(side, type) (((side) * 6) + type) //Type to Index conversion, for accessing Bitboards
+
+inline string asciiToString(char type) {
+    type = type % 6;
+    switch (type) {
+        case T:
+            return "Tetra";
+        case D:
+            return "Dodeca";
+        case O:
+            return "Octa";
+        case C:
+            return "Cube";
+        case I:
+            return "Icosa";
+        case S:
+            return "Sphere";
+    }
+
+    return "";
+
+}
+
 
