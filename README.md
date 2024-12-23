@@ -1,13 +1,11 @@
 # Starchess
 3-D Chess Game
 
-. . . ♝ . . . <br/>
-. . ♞ ♝ ♞ . . <br/>
-. ♞ ♜ ♛ ♜ ♞ . <br/>
-♝ ♝ ♛ ♚ ♛ ♝ ♝ <br/>
-. ♞ ♜ ♛ ♜ ♞ . <br/>
-. . ♞ ♝ ♞ . . <br/>
-. . . ♝ . . . <br/>
+ ♜ ♞ ♝ ♞ ♜  <br/>
+ ♞ ♛ ♝ ♛ ♞  <br/>
+ ♝ ♝ ♚ ♝ ♝  <br/>
+ ♞ ♛ ♝ ♛ ♞  <br/>
+ ♜ ♞ ♝ ♞ ♜  <br/>
 
 # Commands:
 ./starchess - runs the program.<br/>
